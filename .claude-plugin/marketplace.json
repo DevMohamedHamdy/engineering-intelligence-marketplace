@@ -1,0 +1,16 @@
+{
+  "name": "engineering-intelligence-marketplace",
+  "owner": {
+    "name": "DevMohamedHamdy"
+  },
+  "metadata": {
+    "description": "Engineering Intelligence Claude Code plugins."
+  },
+  "plugins": [
+    {
+      "name": "ei",
+      "source": "./engineering-intelligence-plugin",
+      "description": "Technology-agnostic engineering workflows for understanding, analyzing, refactoring, implementing, and reviewing codebases."
+    }
+  ]
+}
