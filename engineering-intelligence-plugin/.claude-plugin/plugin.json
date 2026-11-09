@@ -1,7 +1,7 @@
 {
   "name": "ei",
   "version": "0.1.0",
-  "description": "Technology-agnostic engineering workflow orchestrator: refactor, implement features, fix bugs, review, or analyze any codebase — with automatic discovery, business-logic tracing, source-linked BEFORE/AFTER Mermaid diagrams, behavior-parity comparison, approval gates, and a continuous local review loop (Claude implements, CodeRabbit reviews, labeled Claude fallback when unavailable).",
+  "description": "Technology-agnostic engineering workflow: refactor, implement features, fix bugs, review, or analyze any codebase. Named files are handled with a fast, file-only path. Rendered BEFORE/AFTER/delta Mermaid diagrams open as images in your editor without writing files into the project; CodeRabbit reviews every change automatically (Claude fallback); approval gate before edits; truthful test results; nothing is committed.",
   "author": {
     "name": "M. Hamdy",
     "email": "m.hamdy@takein.sa"

@@ -167,8 +167,8 @@ def main():
         rc, out, err = sh([info["cli"], "-r", *files], timeout=30)
         print(json.dumps({"status": "opened" if rc == 0 else "failed", "editor": info.get("editor"), "cli": info["cli"],
                           "command": [info["cli"], "-r", *files], "stderr": err[:300] or None,
-                          "next": "press " + info["preview_shortcut"] + " in the "
-                          + next((os.path.basename(f) for f in reversed(files) if f.endswith(".md")), "Markdown") + " tab"}, indent=2))
+                          "next": next(("press " + info["preview_shortcut"] + " in the " + os.path.basename(f) + " tab"
+                                       for f in reversed(files) if f.endswith(".md")), "diagrams are open as image tabs")}, indent=2))
         return 0 if rc == 0 else 1
     if info.get("family") == "jetbrains" and sys.platform == "darwin":
         rc, out, err = sh(["open", "-a", info["install"], *files])

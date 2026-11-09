@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Render an Engineering Workspace's Mermaid diagrams to self-contained local SVG files.
+"""Render Mermaid diagrams to self-contained local SVG files (diagram folder or Engineering Workspace).
+
+Diagram folder (default, no Markdown): a temp folder OUTSIDE the project holding `<id>.mmd` files
+(e.g. before-<name>.mmd, after-<name>.mmd, delta-<name>.mmd). Each is rendered to `<id>.svg` next to it.
+  --record-after <file ...> (with --project) stores the sha256 of those source files in after-hashes.json
+  when the AFTER diagrams are rendered; any later run (incl. --check-only) reports `stale_after` if they changed.
+
+Engineering Workspace (only when the developer asked for saved docs):
 
 Source-first: the Mermaid source lives in the workspace Markdown pages. Each diagram is marked:
 
@@ -8,8 +15,8 @@ Source-first: the Mermaid source lives in the workspace Markdown pages. Each dia
     ...the next ```mermaid fenced block after the marker is the source...
 
 Usage:
-  python3 -I render_workspace.py <workspace_dir> --tmp <temp_dir> [--project <root>] [--browser <path>]
-                                 [--mermaid-js <path-or-url>] [--check-only]
+  python3 -I render_workspace.py <diagram_dir | workspace_dir> --tmp <temp_dir> [--project <root>]
+                                 [--record-after <file ...>] [--browser <path>] [--mermaid-js <path-or-url>] [--check-only]
 
 What it does:
   1. Collects every marked diagram from <workspace_dir>/*.md (ids must be unique).
@@ -85,6 +92,10 @@ def find_browser(explicit):
 
 def collect(ws):
     diagrams, problems = {}, []
+    for f in sorted(ws.glob("*.mmd")):  # diagram-folder mode
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", f.stem):
+            problems.append(f"{f.name}: id must match [A-Za-z0-9_-]+"); continue
+        diagrams[f.stem] = {"page": f.name, "source": f.read_text(encoding="utf-8").strip(), "file": True}
     for page in sorted(ws.glob("*.md")):
         text = page.read_text(encoding="utf-8")
         for m in MARKER.finditer(text):
@@ -134,6 +145,18 @@ def sha256(path):
 def check_after(ws, project):
     """AFTER pages must describe the code as it is now: hashes match, source links resolve to real lines."""
     stale, broken, pages = [], [], 0
+    rec = ws / "after-hashes.json"
+    if rec.is_file():
+        pages += 1
+        for rel, want in json.loads(rec.read_text()).items():
+            f = project / rel
+            if want == "deleted":
+                if f.exists():
+                    stale.append(f"{rel} recorded as deleted but exists")
+            elif not f.is_file():
+                stale.append(f"{rel} missing")
+            elif sha256(f) != want:
+                stale.append(f"{rel} changed since the AFTER diagrams were drawn")
     for page in sorted(ws.glob("*.md")):
         text = page.read_text(encoding="utf-8")
         marks = AFTER_HASH.findall(text)
@@ -199,7 +222,8 @@ def node_ids(src):
 
 
 def check_pairs(ws, diagrams):
-    prose = " ".join(FENCE.sub("", p.read_text(encoding="utf-8")) for p in ws.glob("*.md"))
+    pages = list(ws.glob("*.md"))
+    prose = " ".join(FENCE.sub("", p.read_text(encoding="utf-8")) for p in pages)
     named = set(re.findall(r"`([A-Za-z_][\w-]*)`", prose))
     pairs, unaccounted = {}, []
     for did in diagrams:
@@ -209,6 +233,8 @@ def check_pairs(ws, diagrams):
         b, a = node_ids(diagrams[did]["source"]), node_ids(diagrams[f"after-{name}"]["source"])
         only_b, only_a = sorted(b - a), sorted(a - b)
         pairs[name] = {"only_before": only_b, "only_after": only_a}
+        if not pages:  # diagram-folder mode: the chat comparison table must classify these
+            continue
         unaccounted += [f"{name}: `{n}` only in BEFORE — classify (MISSING / moved / renamed)" for n in only_b if n not in named]
         unaccounted += [f"{name}: `{n}` only in AFTER — classify (ADDED / moved / renamed)" for n in only_a if n not in named]
     return pairs, unaccounted
@@ -219,6 +245,8 @@ def main():
     ap.add_argument("workspace")
     ap.add_argument("--tmp", required=True)
     ap.add_argument("--project", help="project root for AFTER checks (default: three levels above the workspace)")
+    ap.add_argument("--record-after", nargs="+", metavar="FILE",
+                    help="source files the AFTER diagrams describe (paths relative to --project or absolute)")
     ap.add_argument("--browser")
     ap.add_argument("--mermaid-js", default=MERMAID_DEFAULT)
     ap.add_argument("--check-only", action="store_true")
@@ -259,12 +287,13 @@ def main():
             res.update(status="not_run", reason="renderer produced no result (Mermaid library not loaded? check network or --mermaid-js)")
             print(json.dumps(res, indent=2)); return 2
         out = json.loads(html.unescape(m.group(1)))
-        (ws / "diagrams").mkdir(exist_ok=True)
+        if any(not d.get("file") for d in diagrams.values()):
+            (ws / "diagrams").mkdir(exist_ok=True)
         for did, r in out.items():
             if "error" in r:
                 errors[did] = f'{diagrams[did]["page"]}: {r["error"][:300]}'
                 continue
-            path = ws / "diagrams" / f"{did}.svg"
+            path = (ws / f"{did}.svg") if diagrams[did].get("file") else (ws / "diagrams" / f"{did}.svg")
             path.write_text(standalone_svg(r["svg"]), encoding="utf-8")
             written.append(str(path.relative_to(ws)))
         res.update(svgs=written, render_errors=errors,
@@ -283,7 +312,17 @@ def main():
             res["svg_check_screenshot"] = str(shot) if shot.is_file() else None
 
     res["missing_svg_refs"] = check_refs(ws)
+    if not a.project and ((ws / "after-hashes.json").is_file() or a.record_after) and not list(ws.glob("*.md")):
+        res.update(status="error", reason="--project is required to record or check AFTER hashes in a diagram folder")
+        print(json.dumps(res, indent=2)); return 2
     project = pathlib.Path(a.project).resolve() if a.project else ws.parents[2]
+    if a.record_after and not a.check_only and not errors:
+        rec = {}
+        for f in a.record_after:
+            fp = pathlib.Path(f) if os.path.isabs(f) else project / f
+            rel = str(fp.resolve().relative_to(project))
+            rec[rel] = sha256(fp) if fp.is_file() else "deleted"
+        (ws / "after-hashes.json").write_text(json.dumps(rec, indent=2))
     after_pages, stale, broken = check_after(ws, project)
     pairs, unaccounted = check_pairs(ws, diagrams)
     res.update(after_pages=after_pages, stale_after=stale, broken_after_links=broken,

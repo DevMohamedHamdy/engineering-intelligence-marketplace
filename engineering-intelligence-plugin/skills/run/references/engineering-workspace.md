@@ -1,12 +1,14 @@
 # Engineering Workspace (structure, rendering, opening, walkthrough)
 
-**Load when:** a task produces analysis output — Understand / Analyze, architecture analysis, business-logic tracing, refactoring analysis, Review — or any task whose output plan includes a workspace. SKILL.md decides *when*; this file defines *how*.
+**Load when:** the developer asked to save the work as Markdown docs in the project. SKILL.md decides *when*; this file defines *how*.
 
-The workspace is the **primary deliverable**, and it is explored **entirely inside the developer's editor** — Markdown pages in the editor's native Markdown Preview, diagrams as local SVG images. Terminal text is only a guide to it. **Never open an external web browser.**
+**Optional, on request only.** By default the workflow writes no files into the project: diagrams are rendered from `.mmd` files in a session folder outside the project and opened as image tabs, and everything else goes in chat (SKILL.md → *Diagrams*). This saved workspace is for developers who want a persistent, navigable copy. It is explored **entirely inside the editor** — Markdown pages in the native Markdown Preview, diagrams as local SVG images. **Never open an external web browser.**
+
+The diagram rules in §3a (BEFORE/AFTER/delta ids, colours, node-ID stability) apply to the default session diagrams too.
 
 ## 1. Location and structure
 
-Default: `<target-project-root>/docs/engineering-intelligence/<task-name>/` where `<task-name>` = `<task>-<subject-slug>` (e.g. `analyze-checkout-flow`, `review-payment-retry`). If the project has its own docs convention, the developer chose at intake. Never write elsewhere. Creating it — and every file in it — must be listed in the approved output plan. If the folder exists, ask: new folder with a date suffix, or update in place.
+Default: `<target-project-root>/docs/engineering-intelligence/<task-name>/` where `<task-name>` = `<task>-<subject-slug>` (e.g. `analyze-checkout-flow`, `review-payment-retry`). If the project has its own docs convention, the developer chose at intake. Never write elsewhere. Write only after the developer asked for saved docs, and list the files you'll write. If the folder exists, ask: new folder with a date suffix, or update in place.
 
 | File | Contents | Built from |
 |------|----------|------------|
@@ -127,7 +129,7 @@ Results:
 
 ## 5. Opening inside the editor
 
-Opening is a visible action in the developer's editor; it is part of the approved output plan ("open when ready: yes/no"). **Never open a web browser and never open HTML.**
+Diagrams and pages always open in the developer's editor without asking. **Never open a web browser and never open HTML.**
 
 ### Detect
 ```bash
@@ -171,6 +173,6 @@ In chat, at most ~15 lines:
 
 ## 7. Read-only boundaries during analysis
 
-- Write only the files listed in the approved output plan, inside the workspace folder, plus render artifacts in the named temp directory outside the project.
+- Write only the workspace files the developer asked for, inside the workspace folder, plus render artifacts in the named temp directory outside the project.
 - Never modify application source, project config, editor or user settings, git state, Claude memory files, project memory, saved context, or historical notes — no hidden maintenance. If you think something is worth remembering, suggest it; don't write it.
 - No installs (no editor extensions, no Mermaid CLI). Network use is limited to what the plan states (the Mermaid library fetched by the headless renderer at generation time).

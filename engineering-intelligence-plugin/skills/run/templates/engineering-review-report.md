@@ -14,11 +14,9 @@ Nothing has been committed or pushed. Committing and pushing are the developer's
 | Item | Value |
 |------|-------|
 | Reviewer for final review | {{CodeRabbit CLI | CLAUDE FALLBACK}} |
-| Availability status | {{AVAILABLE · NOT A GIT REPO · NOT INSTALLED · NOT AUTHENTICATED · UNKNOWN · UNSUPPORTED · CONSENT DECLINED}} |
+| Availability status | {{AVAILABLE · NOT A GIT REPO · NOT INSTALLED · NOT AUTHENTICATED · UNKNOWN · UNSUPPORTED}} |
 | CLI path / version | {{/abs/path · x.y.z | n/a}} |
 | Authentication | {{`auth status --agent` → authenticated: true/false, org, region | check failed: <error>}} |
-| Data-transmission consent | {{given at Plan Gate on <date> | declined | n/a}} |
-| CLAUDE FALLBACK allowed | {{yes | no}} |
 | Intermediate reviews | {{n CodeRabbit successful · n CodeRabbit failed/skipped · n CLAUDE FALLBACK}} |
 | CodeRabbit failure details | {{event/exit code/message per failed run, no secrets | none}} |
 | Staleness events | {{…}} |

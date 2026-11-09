@@ -34,13 +34,13 @@ Run in the **same execution context** that will run the review. Stop at the firs
 2. **CLI:** resolve to a canonical absolute path (`command -v coderabbit`; also check `~/.local/bin/coderabbit`). Reject repository/workspace/temp binaries or wrappers. Record `--version`. Check `review --help` for the flags you intend to use. Missing → `NOT INSTALLED`. Don't install. When the developer confirms it's missing, point them to the official installer.
 3. **Auth:** `"<path>" auth status --agent` → proceed only on a well-formed `type: status` event with `authenticated: true`. `false` → `NOT AUTHENTICATED`; ask the developer to run `auth login` themselves (e.g. `! coderabbit auth login`); never start login. Error/malformed output → `UNKNOWN (auth check failed)`, not "unauthenticated". Record region and org; do not copy user email or credentials into reports.
 4. **Sandbox note:** `credentials_unavailable` / `callback_listener_unavailable` from a sandboxed run mean local access failed, not logout — follow the plugin's `auth-recovery.md` (one approved host retry, before review work starts only).
-5. **Consent:** the CLI sends the selected diff and context to CodeRabbit's service. A review that transmits project code requires **explicit developer consent recorded at the Plan Gate**. Plugin installation or prior login is not consent. Before each run, check the selected diff for secret-like files/strings; if found, stop and ask (never print the secret).
+5. **Consent:** the CLI sends the selected diff and context to CodeRabbit's service. The developer has given a **standing instruction** that CodeRabbit always reviews code changes — don't ask per task. Keep the target narrow (`--dir` around the changed files). Before each run, check the selected diff for secret-like files/strings; if found, stop and ask (never print the secret).
 
-Status values: `AVAILABLE (CLI <version>, <org>, <region>)` · `NOT A GIT REPO` · `NOT INSTALLED` · `NOT AUTHENTICATED` · `UNKNOWN (<error>)` · `UNSUPPORTED (<missing flag/target>)` · `CONSENT DECLINED`.
+Status values: `AVAILABLE (CLI <version>, <org>, <region>)` · `NOT A GIT REPO` · `NOT INSTALLED` · `NOT AUTHENTICATED` · `UNKNOWN (<error>)` · `UNSUPPORTED (<missing flag/target>)`.
 
 ### Claude fallback
 
-Used when status is not `AVAILABLE`, or a run fails — **only if the developer allowed fallback at the Plan Gate** (default: allowed). Otherwise stop and report. Label every such review and finding **`CLAUDE FALLBACK`**, never "CodeRabbit", and keep the original CodeRabbit failure details (status, event payload or exit code, error message, no secrets) for the report. For independence, prefer a fresh read-only subagent given only the diff, approved requirements, Implementation Scope, and `code-quality-review.md` — not Claude's implementation reasoning. Validate its findings exactly like CodeRabbit's (§4).
+Used **automatically, without asking**, when status is not `AVAILABLE` or a run fails or is skipped. State the CodeRabbit failure in one line and continue. Label every such review and finding **`CLAUDE FALLBACK`**, never "CodeRabbit", and keep the original CodeRabbit failure details (status, event payload or exit code, error message, no secrets) for the report. For independence, prefer a fresh read-only subagent given only the diff, approved requirements, Implementation Scope, and `code-quality-review.md` — not Claude's implementation reasoning. Validate its findings exactly like CodeRabbit's (§4).
 
 ## 2. Review target
 
@@ -122,7 +122,7 @@ Priority among competing fixes: correctness → security → data integrity → 
 ## 5. Fix–review iteration
 
 Per logical unit:
-1. Review the unit (CodeRabbit, else CLAUDE FALLBACK if allowed) → validate and classify.
+1. Review the unit (CodeRabbit, else CLAUDE FALLBACK) → validate and classify.
 2. Apply the fixes allowed by the mode (§6), inside the Implementation Scope.
 3. Run targeted tests/checks from the approved Verification Scope.
 4. Re-review the updated changes (same target).
@@ -151,7 +151,7 @@ When asking, batch per checkpoint: summarize the items in chat, then one `AskUse
 
 After all units are done:
 1. Read the complete local diff for the approved target.
-2. Run CodeRabbit on the **complete latest** local changes with the approved target **plus `--fresh`** (so checkpoint reuse cannot limit it to the last delta). If unavailable/failed: complete `CLAUDE FALLBACK` review if allowed, keeping the failure details.
+2. Run CodeRabbit on the **complete latest** local changes with the approved target **plus `--fresh`** (so checkpoint reuse cannot limit it to the last delta). If unavailable/failed: complete `CLAUDE FALLBACK` review, keeping the failure details. On the fast path, the last review is already final if it ran on the final diff and no fix followed it — don't run an extra one.
 3. Reconcile with intermediate findings: same issue → merge history; previously fixed → confirm still fixed; previously rejected → keep the reason unless new evidence appears.
 4. Apply the fix loop (§4–6) to new findings. If any fix is applied, the final review must be repeated on the new latest diff — within the iteration limit. At the limit, report that the final latest diff was **not** reviewed after the last fix.
 5. Every unresolved `CRITICAL`/`HIGH` is listed as blocking or as a developer decision — never dropped.

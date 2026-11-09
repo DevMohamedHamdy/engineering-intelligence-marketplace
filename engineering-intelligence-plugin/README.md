@@ -44,24 +44,21 @@ Details: `skills/run/references/architecture-strategy.md`. Used for large refact
 skills/run/
   SKILL.md              # orchestration: tasks, scopes, gates, review loop
   references/           # specialized methods + shared evidence model + coderabbit-review.md
-  references/engineering-workspace.md  # workspace structure, rendering, opening, walkthrough
-  scripts/render_workspace.py         # Mermaid in Markdown -> standalone SVGs + checks
+  references/engineering-workspace.md  # optional saved Markdown workspace; BEFORE/AFTER diagram rules (§3a)
+  scripts/render_workspace.py         # Mermaid (.mmd folder or Markdown) -> standalone SVGs + BEFORE/AFTER checks
   scripts/open_in_editor.py           # detect editor, open workspace files in it (never a browser)
   templates/            # report skeletons (incl. engineering-review-report.md, workspace/index.md, workspace/comparison.md)
 ```
 
 ## Interaction and output
 
-`/ei:run` starts with a short intake (task → target → depth) and an **investigation plan** you confirm before any deep analysis. The result is an **Engineering Workspace** in the target project, never in this plugin:
+**Name files to stay fast and focused:** `/ei:run refactor only src/cart/Cart.tsx` works on that file and nothing else — no project-wide discovery, no tracing into callers or imports, no edits elsewhere. The public interface is preserved; if the change needs other files you're asked first. Broad requests ("refactor the checkout flow") get a short investigation plan to confirm first.
 
-```text
-docs/engineering-intelligence/<task>-<subject>/
-  index.md          # overview, overview diagram, key findings, open questions, navigation
-  architecture.md   flow.md   flow-<subflow>.md   risks.md   evidence.md   sources.md
-  diagrams/*.svg    # self-contained images rendered from the Mermaid source in the pages (offline)
-```
+**Review is automatic:** CodeRabbit reviews every code change (scoped with `--dir` to the changed files). If it is unavailable or fails, Claude reviews instead, labeled `CLAUDE FALLBACK`. You're never asked which reviewer to use.
 
-Mermaid source stays in the Markdown; `skills/run/scripts/render_workspace.py` renders it to local SVGs headlessly (an installed Chrome/Chromium/Edge, invisible; installs nothing). `skills/run/scripts/open_in_editor.py` detects your editor (verified: Trae; VS Code/Cursor expected) and opens `index.md` there — press Cmd/Ctrl+Shift+V for the native Markdown Preview with diagrams and page navigation. No external browser is ever opened. For Refactor / Feature / Fix, the workspace also gets `comparison.md`: BEFORE diagrams (drawn from the original code before the Plan Gate), AFTER diagrams re-traced from the final code after all review fixes, and a delta diagram colouring each step PRESERVED / CHANGED / ADDED / MISSING. The render script checks that the AFTER diagrams still match the code (file hashes, source lines) and that every added or removed step is classified. Analysis tasks write nothing outside the approved workspace folder.
+**BEFORE / AFTER diagrams, no files in your project:** for Refactor / Feature / Fix, a BEFORE diagram is drawn from the original code before the plan, and AFTER + a colour-coded delta diagram (PRESERVED / CHANGED / ADDED / MISSING) from the final code after all review fixes. They are rendered to SVG (headless, invisible) in a session temp folder outside the project and opened as image tabs in your editor (`open_in_editor.py`; verified in Trae, VS Code/Cursor expected). The comparison table and report are in chat. `render_workspace.py --record-after` binds the AFTER diagram to the final file hashes and reports `stale_after` if the code changes later. No browser is ever opened.
+
+**Saved docs only on request:** if you ask, the work is saved as a Markdown workspace at `docs/engineering-intelligence/<task>-<subject>/` (`references/engineering-workspace.md`), navigable in the editor's Markdown Preview.
 
 ## Local testing
 

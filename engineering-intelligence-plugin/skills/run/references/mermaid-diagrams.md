@@ -2,7 +2,7 @@
 
 **Load when:** producing any diagram (standalone request or as part of another workflow).
 
-**Mode:** read-only (diagrams are written only into the approved Engineering Workspace). Mermaid source alone is not a finished diagram — embedding, rendering, verification, and opening follow `engineering-workspace.md`.
+**Mode:** read-only. Diagrams are `.mmd` files in the session diagram folder outside the project (SKILL.md → *Diagrams*), or pages of a saved workspace when the developer asked for one. Mermaid source alone is not a finished diagram — it is rendered with `scripts/render_workspace.py` and opened in the editor.
 
 ## Choosing a diagram type
 
