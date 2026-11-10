@@ -44,7 +44,7 @@ With arguments: infer the task, state it in one line, and continue; ask the task
 | Refactor | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
 | Refactor → Restructure | Which architecture mode should guide it? (Mode) | Existing conventions (Recommended) · Best practice for this stack · Hybrid · Follow an example module | single |
 | Feature | **The only question:** one plain-chat message asking for the ticket link and the Figma node link ("no design" accepted). Then start — see SKILL.md *Ticket & design intake* | — | — |
-| Fix | **The only question:** one plain-chat message asking for the ticket link. Then start | — | — |
+| Fix | **The only question:** one plain-chat message asking for the ticket link. Then read it (Jira via the Atlassian connector) and fix it — no Plan Gate | — | — |
 | Review | What should be reviewed? (Scope) | Uncommitted local changes · Local commits not yet pushed · A module or files · Before vs after comparison | single |
 | Review | What should the review focus on? (Focus) | Correctness & bugs · Security · Code quality & maintainability · Tests & regression risk | multi |
 | Analyze | What do you want to understand? (Focus) | Project overview · A business flow or feature · Architecture of a module · A specific question | single |
@@ -57,7 +57,7 @@ Always present the full content in chat first, then ask. Put a condensed version
 | Moment | Question (header) | Options |
 |--------|-------------------|---------|
 | Scope Gate (G0) — broad requests only | "Approve this investigation plan for <goal>?" (Scope) | Approve plan (Recommended) · Adjust scope · Cancel |
-| Plan Gate (G1+G2) | "Approve the plan for <files/goal>?" (Plan) | Approve (Recommended) · Adjust · Cancel |
+| Plan Gate (G1+G2) — not for Fix | "Approve the plan for <files/goal>?" (Plan) | Approve (Recommended) · Adjust · Cancel |
 | Bare file name matches several files | "Which <name> do you mean?" (File) | up to 4 matching paths |
 | Several entry points | "Which entry point is the one you mean?" (Entry) | up to 4 candidates with `path:line` |
 | Scope would grow (broad requests) / change needs other files (named files) | "<finding> needs <X>, outside the agreed files. How to proceed?" (Scope) | Stay in scope (Recommended) · Include <X> · Note as open question |
