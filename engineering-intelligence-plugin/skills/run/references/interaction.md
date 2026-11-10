@@ -6,7 +6,7 @@
 
 1. **Every decision with a predefined set of choices uses `AskUserQuestion`** — tasks, targets with known candidates, strategy, scope, approvals, finding decisions, next steps. Never ask the developer to type a number or option name.
 2. **Ask only the next relevant question.** One question per call by default; batch at most 2–4 questions in one call only when they are independent and all needed now . No questionnaires.
-   **Never ask:** which reviewer (always CodeRabbit, automatic Claude fallback), consent to send code to CodeRabbit (standing developer instruction), whether to allow the fallback, collaboration mode (Hybrid unless the developer says otherwise), depth, output location, or whether to open diagrams (they always open in the editor). When the developer names files, skip the task/target questions too.
+   **Never ask:** which reviewer (always CodeRabbit, automatic Claude fallback), consent to send code to CodeRabbit (standing developer instruction), whether to allow the fallback, collaboration mode (Hybrid unless the developer says otherwise), depth, output location, or whether to open diagrams (they always open in the editor). For Feature and Fix, never ask for description, acceptance criteria, symptoms, observed/expected, reproduction steps, or environment — they come from the ticket. When the developer names files, skip the task/target questions too.
 3. **Skip what is known.** If the request, earlier answers, or the repository already answer a question, don't ask it — state the assumption in one line instead.
 4. **Tool limits:** 2–4 options per question; `header` ≤ 12 characters; previews only on single-select questions. **"Other" (free text) is added automatically** — never add an "Other" option yourself; mention it in the question when free text is likely ("…or describe it in Other").
 5. **Recommended option first**, labelled `(Recommended)`, when there is a sensible default.
@@ -43,10 +43,8 @@ With arguments: infer the task, state it in one line, and continue; ask the task
 | Refactor | What should the refactor improve? (Goals) | Readability & size · Duplication · Testability · Coupling & boundaries | multi |
 | Refactor | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
 | Refactor → Restructure | Which architecture mode should guide it? (Mode) | Existing conventions (Recommended) · Best practice for this stack · Hybrid · Follow an example module | single |
-| Feature | (if not described) one short plain-chat question: what should the feature do? | — | — |
-| Feature | Is there an existing design or specification? (Spec) | Ticket/spec I'll share · Design link (e.g. Figma) · Follow an existing feature in the repo · No spec — I'll describe it | single |
-| Fix | What kind of problem is it? (Symptom) | Crash or error message · Wrong result or data · UI/flow not behaving as expected · Slow or hanging | single (Other = describe) |
-| Fix | (if not given) one plain-chat question: observed vs expected, and steps/error/log if available | — | — |
+| Feature | **The only question:** one plain-chat message asking for the ticket link and the Figma node link ("no design" accepted). Then start — see SKILL.md *Ticket & design intake* | — | — |
+| Fix | **The only question:** one plain-chat message asking for the ticket link. Then start | — | — |
 | Review | What should be reviewed? (Scope) | Uncommitted local changes · Local commits not yet pushed · A module or files · Before vs after comparison | single |
 | Review | What should the review focus on? (Focus) | Correctness & bugs · Security · Code quality & maintainability · Tests & regression risk | multi |
 | Analyze | What do you want to understand? (Focus) | Project overview · A business flow or feature · Architecture of a module · A specific question | single |
