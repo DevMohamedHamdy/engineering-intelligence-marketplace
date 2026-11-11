@@ -4,6 +4,12 @@
 
 The goal: code that follows current best practice for the project's stack, in the **simplest, most direct form** that solves the ticket. When the rules below pull in different directions, simplicity wins unless it costs correctness or security.
 
+## 0. Stay inside the request — always
+
+- **Never go outside the ticket or what the developer asked for.** No extra features, fixes, refactors, cleanups, renames, or "while I'm here" improvements — not in the code, not in tests, not in config. Anything else you notice goes in **one follow-up line** in chat; it is never done.
+- If the request can't be done without touching something outside it, stop and ask (one question) — don't decide alone.
+- **Don't overthink.** Take the most direct reading of the request and do it. No exploring alternative designs, hypothetical edge cases the ticket doesn't raise, or future needs. Read only what the change needs, decide, act. Keep explanations short.
+
 ## 1. Simplest thing that works
 
 - Solve exactly what the ticket / refactor goal asks. No speculative features, options, flags, or "for later" hooks (YAGNI).
