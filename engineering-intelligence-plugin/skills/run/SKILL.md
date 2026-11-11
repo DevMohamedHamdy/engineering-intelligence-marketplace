@@ -21,7 +21,8 @@ You collaborate with the developer on one engineering task on their project (the
 7. **Report honestly.** Never claim tests passed unless you ran them in this session and saw the result (`NOT RUN` + reason otherwise). Never call a Claude review CodeRabbit. Never hide unresolved findings.
 8. **Detect, don't impose.** Follow project conventions; no new layers, abstractions, or dependencies without a concrete, evidenced problem (`references/architecture-strategy.md`).
 9. **Never print secret values.** Existence only.
-10. **No files the developer didn't ask for.** Never create Markdown (or any other) files in the project as a by-product of the workflow. Diagrams and their sources live in a session temp folder **outside the project**; findings, plans, comparisons, and reports go in chat. A saved Markdown workspace (`references/engineering-workspace.md`) is written only when the developer asks for it. Never modify settings, git state, Claude memory or project memory, or saved context.
+10. **Implementation Standard on every change.** Every ticket, fix, and refactor follows `references/implementation-standard.md`: simplest straightforward solution, current best practice for the project's actual versions (verify when unsure — never guess an API is current), no deprecated APIs, no speculative abstractions or new dependencies.
+11. **No files the developer didn't ask for.** Never create Markdown (or any other) files in the project as a by-product of the workflow. Diagrams and their sources live in a session temp folder **outside the project**; findings, plans, comparisons, and reports go in chat. A saved Markdown workspace (`references/engineering-workspace.md`) is written only when the developer asks for it. Never modify settings, git state, Claude memory or project memory, or saved context.
 
 **Precedence:** this file is the source of truth for orchestration. References define specialized methods. If they conflict, this file wins.
 
@@ -45,7 +46,7 @@ The default for Refactor / Fix / Feature / Review on named files. Target: as few
 1. **No intake questions** beyond what is truly unknown. State your interpretation in one line. Don't ask for task, target, depth, collaboration mode (Hybrid), reviewer (CodeRabbit), or location. Ask the refactor strategy only if the request gives no hint (otherwise infer it and state it). Feature and Fix still get their link question (*Ticket & design intake*) — and nothing else.
 2. **Quick preflight**, silently, in parallel: `git status --porcelain -- <files>`, the CodeRabbit CLI path and `auth status --agent` (`references/coderabbit-review.md` §1), editor detection (`scripts/open_in_editor.py detect`), and one glob for tests named like the files.
 3. **Read the named files** and draw the **BEFORE** diagram(s) of their logic (flowchart of the main function(s); a sequence diagram only if the file orchestrates several collaborators). Render and open them (*Diagrams* below). This always happens before the plan.
-4. **Plan Gate** (not for Fix — it posts the root cause + change in chat and edits directly) — ≤ 10 lines: what will change and why, the behavior that must stay the same, interface preserved (yes / exactly what changes), tests that will run. One `AskUserQuestion`: Approve (Recommended) · Adjust · Cancel.
+4. **Plan Gate** (not for Fix — it posts the root cause + change in chat and edits directly) — ≤ 10 lines: what will change and why, the behavior that must stay the same, interface preserved (yes / exactly what changes), a `Standard:` line (`references/implementation-standard.md` §4), tests that will run. One `AskUserQuestion`: Approve (Recommended) · Adjust · Cancel.
 5. **Implement**, then one CodeRabbit review of the change (*Review loop*). Fix validated findings in the named files; re-review only if fixes were applied; at most 3 review runs in total.
 6. **Verify**: run the matched tests/checks (`NOT RUN` + reason otherwise).
 7. **AFTER** diagram(s) from the final code + delta diagram → render and open → **BEFORE/AFTER comparison in chat** → **Review Gate** (Accept · Request changes). Nothing is committed.
@@ -100,7 +101,7 @@ Then: trace (`references/business-logic-tracing.md`) → BEFORE diagrams → Pla
 | **Verification** | Tests/checks to run, diagrams to redraw, behaviors to compare. | Approved with the plan; listed commands and the CodeRabbit review are then pre-authorized (no installs, no login, no paid credits). |
 
 - **Scope Gate (G0)** — broad requests only.
-- **Plan Gate (G1 + G2)** — Refactor and Feature only, before any change: goal, approach, Implementation Scope (exact files + action), behavior to preserve, interface impact, risks and rollback, Verification Scope. Restructure Architecture / large refactors present G1 (proposal) and G2 (first slice) separately; execution levels L1–L3 in `references/architecture-strategy.md` only when scope makes it matter. Only the explicit approve option counts.
+- **Plan Gate (G1 + G2)** — Refactor and Feature only, before any change: goal, approach (with the `Standard:` line), Implementation Scope (exact files + action), behavior to preserve, interface impact, risks and rollback, Verification Scope. Restructure Architecture / large refactors present G1 (proposal) and G2 (first slice) separately; execution levels L1–L3 in `references/architecture-strategy.md` only when scope makes it matter. Only the explicit approve option counts.
 - **Developer decisions during the loop** — always-ask findings, batched into one question per checkpoint.
 - **Review Gate (G3)** — the BEFORE/AFTER comparison and the review summary, in chat, with the diagrams open in the editor.
 - **Completion (G4)** — remaining risks and follow-ups in a few lines. Nothing is committed or pushed.
@@ -117,16 +118,16 @@ Then: trace (`references/business-logic-tracing.md`) → BEFORE diagrams → Pla
 | AFTER + delta diagrams from the final code, comparison in chat | ✓ | ✓ | ✓ | before/after pair | — |
 
 ### 1. Refactor Existing Code
-Load: `references/refactoring-review.md` (part B), `references/behavior-comparison.md`; for broad scope also `references/architecture-strategy.md`, `references/business-logic-tracing.md`.
+Load: `references/implementation-standard.md`, `references/refactoring-review.md` (part B), `references/behavior-comparison.md`; for broad scope also `references/architecture-strategy.md`, `references/business-logic-tracing.md`.
 - Strategies (one single-select question, only when the request doesn't indicate one): **Improve Structure** · **Extract & Separate Logic** · **Restructure Architecture** (ask mode: existing conventions / best practice / hybrid / follow an example; `templates/architecture-proposal.md`) · **Custom Strategy** (`references/reference-based-analysis.md`).
 - Behavior-preserving by default; intended changes listed at the Plan Gate. With named files, extraction goes into a new function/section **inside the same file** unless the developer approved a new file.
 - Never delete code or change public interfaces without explicit approval.
 
 ### 2. Implement New Feature
-Load: `references/business-logic-tracing.md`, `references/reference-based-analysis.md` (if a similar feature exists). Requirements come from the ticket and the Figma node (*Ticket & design intake*); the ticket's acceptance criteria are the checklist for the Plan Gate and the Review Gate (each one: met / not met / not verifiable). Follow the closest existing pattern (cite it; with named files, only if it's in those files or the developer points to it). New behaviors are `ADDED`; existing behaviors stay `PRESERVED` unless planned.
+Load: `references/implementation-standard.md`, `references/business-logic-tracing.md`, `references/reference-based-analysis.md` (if a similar feature exists). Requirements come from the ticket and the Figma node (*Ticket & design intake*); the ticket's acceptance criteria are the checklist for the Plan Gate and the Review Gate (each one: met / not met / not verifiable). Follow the closest existing pattern (cite it; with named files, only if it's in those files or the developer points to it). New behaviors are `ADDED`; existing behaviors stay `PRESERVED` unless planned.
 
 ### 3. Fix a Bug
-Load: `references/business-logic-tracing.md`, `references/test-regression-analysis.md` (step 4). Observed/expected behavior, reproduction steps, and logs come from the ticket (*Ticket & design intake*). Establish the root cause with evidence, then **fix it directly — no Plan Gate**. The Implementation Scope is the minimal set of files needed to fix that root cause.
+Load: `references/implementation-standard.md`, `references/business-logic-tracing.md`, `references/test-regression-analysis.md` (step 4). Observed/expected behavior, reproduction steps, and logs come from the ticket (*Ticket & design intake*). Establish the root cause with evidence, then **fix it directly — no Plan Gate**. The Implementation Scope is the minimal set of files needed to fix that root cause.
 
 Stop and ask (one question) instead of editing only when:
 - the root cause can't be `VERIFIED` — say what's missing and propose how to confirm it; never guess-fix;
@@ -137,7 +138,7 @@ Stop and ask (one question) instead of editing only when:
 Minimal fix; don't add new test files (suggest a regression test as a follow-up), but run existing tests. The fault is `CHANGED (intentional)`; everything else `PRESERVED`. Don't refactor surrounding code; suggest it as a follow-up.
 
 ### 4. Review Existing Implementation
-Read-only. Load by focus: `references/code-quality-review.md`, `references/refactoring-review.md` (part A), `references/behavior-comparison.md` (before/after pair), `references/test-regression-analysis.md`. For local changes, CodeRabbit reviews (`--dir` / named files) and Claude validates (`references/coderabbit-review.md` §1–4). Findings in chat by severity with `path:line`, plus the diagrams. Requested fixes become a Fix or Refactor task with its own Plan Gate.
+Read-only. Load by focus: `references/code-quality-review.md`, `references/implementation-standard.md`, `references/refactoring-review.md` (part A), `references/behavior-comparison.md` (before/after pair), `references/test-regression-analysis.md`. For local changes, CodeRabbit reviews (`--dir` / named files) and Claude validates (`references/coderabbit-review.md` §1–4). Findings in chat by severity with `path:line`, plus the diagrams. Requested fixes become a Fix or Refactor task with its own Plan Gate.
 
 ### 5. Understand / Analyze Project
 Read-only. Load by focus: `references/project-discovery.md`, `references/architecture-analysis.md`, `references/business-logic-tracing.md`, `references/mermaid-diagrams.md`. Answer in chat with the rendered diagrams opened in the editor. Offer to save a Markdown workspace at the end (one question); write it only on yes.
@@ -153,7 +154,7 @@ Per `references/mermaid-diagrams.md`, from code you read — never from names or
 python3 -I <skill-dir>/scripts/render_workspace.py <diagram-dir> --tmp <diagram-dir>/.render --project <root> [--record-after <files...>]
 python3 -I <skill-dir>/scripts/open_in_editor.py open --project <root> <diagram-dir>/<id>.svg ...
 ```
-SVGs open as image tabs in the developer's editor (rendering is headless and invisible; never a browser, never HTML). If rendering or opening fails, say exactly why and show the Mermaid source in chat.
+Each diagram opens as **its own image tab** in the developer's editor (rendering is headless and invisible; never a browser, never HTML). Diagrams are never shown through a `.md` file or the Markdown preview — no Markdown file is created for them; only the `.mmd` source and its `.svg` in the session folder. Open only the diagrams the task needs. If rendering or opening fails, say exactly why and show the Mermaid source in chat.
 
 **Sequence (always, for code-changing tasks):**
 1. **BEFORE** — from the original code, rendered and opened **before the Plan Gate**. Frozen afterwards.
@@ -172,7 +173,7 @@ Method: `references/coderabbit-review.md` §2–7.
 - **Target:** `"<cli>" review --agent --uncommitted --dir <closest common directory of the changed files>`; add `--include-untracked` if a changed file is untracked. Findings outside the Implementation Scope are `OUT OF SCOPE`.
 - **Fallback:** if preflight fails (not a git repo, CLI missing, not authenticated, unsupported flag) or a run fails / is skipped, do a Claude review of the same diff immediately, labeled `CLAUDE FALLBACK`, and state the CodeRabbit failure in one line. Never install or log in; suggest `! coderabbit auth login` once if not authenticated.
 - **Paid usage:** never add `--use-credits` without asking (`action_required` / `awaiting_confirmation` → one question).
-- **Loop:** review → parse NDJSON (only a successful `complete` counts) → validate and classify each finding (`VALID` / `FALSE POSITIVE` / `NEEDS INVESTIGATION` / `OUT OF SCOPE`, severity `CRITICAL`…`INFORMATIONAL`) → fix per Hybrid → re-review **only if code changed**. The last review that ran on the final diff with no fixes after it is the final review; if the last run was followed by fixes, run one more with `--fresh`. Max 3 runs per task on the fast path (3 per unit on the full path). At the limit, report what's unresolved and ask.
+- **Loop:** review → parse NDJSON (only a successful `complete` counts) → validate and classify each finding (Implementation Standard violations count as `VALID`; `VALID` / `FALSE POSITIVE` / `NEEDS INVESTIGATION` / `OUT OF SCOPE`, severity `CRITICAL`…`INFORMATIONAL`) → fix per Hybrid → re-review **only if code changed**. The last review that ran on the final diff with no fixes after it is the final review; if the last run was followed by fixes, run one more with `--fresh`. Max 3 runs per task on the fast path (3 per unit on the full path). At the limit, report what's unresolved and ask.
 - Never edit outside the Implementation Scope to satisfy a finding. Never invoke `coderabbit:autofix` (it commits and pushes).
 
 ## Verification and Review Gate
@@ -180,7 +181,7 @@ Method: `references/coderabbit-review.md` §2–7.
 1. Inspect the complete diff yourself (`git diff -- <files>`), not your memory of intent.
 2. Run the approved Verification Scope; report command, exit status, counts, failures — or `NOT RUN` + reason. A failure that leads to a fix goes through the review loop again.
 3. AFTER + delta diagrams and the comparison (above).
-4. **Review Gate in chat** (≤ ~20 lines): readiness (READY · READY WITH OPEN DECISIONS · NOT READY), files changed, reviewer (CodeRabbit or CLAUDE FALLBACK + why), findings fixed / rejected / open by severity, tests, comparison verdict + table, remaining risks. Lead with blockers: unresolved `CRITICAL`/`HIGH`, `MISSING` or unexplained `CHANGED` behavior, failing tests. Then one question: Accept (Recommended) · Request changes. "Request changes" → implement → review loop → redraw AFTER.
+4. **Review Gate in chat** (≤ ~20 lines): readiness (READY · READY WITH OPEN DECISIONS · NOT READY), files changed, reviewer (CodeRabbit or CLAUDE FALLBACK + why), findings fixed / rejected / open by severity, `Standard: met` or exceptions, tests, comparison verdict + table, remaining risks. Lead with blockers: unresolved `CRITICAL`/`HIGH`, `MISSING` or unexplained `CHANGED` behavior, failing tests. Then one question: Accept (Recommended) · Request changes. "Request changes" → implement → review loop → redraw AFTER.
 
 ## Output
 
@@ -195,4 +196,5 @@ A task is complete only when:
 2. Every diagram rendered without errors and was opened in the editor — or the exact limitation was reported with the Mermaid source in chat.
 3. For code-changing tasks: BEFORE and AFTER diagrams exist, AFTER is not stale, every one-sided node is classified, and the comparison verdict is stated.
 4. Important findings and diagram nodes carry evidence tags and source locations.
-5. Tests are reported truthfully (run with results, or `NOT RUN` + reason), and the reviewer is labeled truthfully.
+5. The change meets `references/implementation-standard.md`, or each exception is stated with its reason.
+6. Tests are reported truthfully (run with results, or `NOT RUN` + reason), and the reviewer is labeled truthfully.

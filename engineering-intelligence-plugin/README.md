@@ -44,6 +44,7 @@ Details: `skills/run/references/architecture-strategy.md`. Used for large refact
 skills/run/
   SKILL.md              # orchestration: tasks, scopes, gates, review loop
   references/           # specialized methods + shared evidence model + coderabbit-review.md
+  references/implementation-standard.md  # standard every change follows: simplest solution, current best practice, no deprecated APIs
   references/engineering-workspace.md  # optional saved Markdown workspace; BEFORE/AFTER diagram rules (§3a)
   scripts/render_workspace.py         # Mermaid (.mmd folder or Markdown) -> standalone SVGs + BEFORE/AFTER checks
   scripts/open_in_editor.py           # detect editor, open workspace files in it (never a browser)

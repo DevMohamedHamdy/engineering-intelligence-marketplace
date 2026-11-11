@@ -1,6 +1,6 @@
 {
   "name": "ei",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Technology-agnostic engineering workflow: refactor, implement features, fix bugs, review, or analyze any codebase. Named files are handled with a fast, file-only path. Rendered BEFORE/AFTER/delta Mermaid diagrams open as images in your editor without writing files into the project; CodeRabbit reviews every change automatically (Claude fallback); approval gate before edits; truthful test results; nothing is committed.",
   "author": {
     "name": "M. Hamdy",

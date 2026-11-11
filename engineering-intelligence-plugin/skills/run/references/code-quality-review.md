@@ -9,6 +9,7 @@
 - Report problems with concrete consequences. Style nits only if the project's linters would flag them or the user asked.
 - Each finding must be actionable and minimal: the smallest fix that resolves it.
 - Don't recommend abstractions, patterns, or libraries unless they pass the proportionality rules in `architecture-strategy.md`.
+- For code changes, also check against `implementation-standard.md` (simplicity, current non-deprecated APIs for the project's versions, non-negotiables).
 
 ## Review dimensions (check in this priority order)
 
