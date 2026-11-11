@@ -65,6 +65,6 @@ Always present the full content in chat first, then ask. Put a condensed version
 | Review-loop decisions | one question per finding, ≤ 4 per call: "<severity> <title> at <path:line> — apply fix?" (Finding) | Apply proposed fix (preview: diff) · Skip — not needed · Defer to follow-up |
 | Iteration limit / persistent finding | "<finding> is still unresolved after <n> attempts. How to proceed?" (Unresolved) | Leave unresolved and continue · Try a different fix · Stop the task |
 | Paid continuation | "CodeRabbit needs usage credits (<files>, up to <cost>). Use credits?" (Credits) | Don't use credits (Recommended) · Use credits for this review |
-| Review Gate (G3) | "Accept the result? Logic: <comparison verdict>" (Review) — after the BEFORE/AFTER/delta diagrams are open and the comparison is in chat; preview: verdict, counts, non-PRESERVED items | Accept (Recommended) · Request changes · (pilot) Continue to next batch |
+| Review Gate (G3) | "Accept the result? Logic: <comparison verdict>" (Review) — after the BEFORE/AFTER/side-by-side diagrams are open and the comparison is in chat; preview: verdict, counts, non-PRESERVED items | Accept (Recommended) · Request changes · (pilot) Continue to next batch |
 | End of Analyze / Review / large task | "Save this as Markdown docs in the project?" (Save) | Don't save (Recommended) · Save to docs/engineering-intelligence/ |
 | Walkthrough next step | "What would you like to do next?" (Next) | 2–4 concrete next steps derived from the findings | 

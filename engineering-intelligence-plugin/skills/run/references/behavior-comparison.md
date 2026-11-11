@@ -46,7 +46,7 @@ Rules:
 For each `CHANGED` (unexplained), `MISSING`, `ADDED` (unexplained), and `UNKNOWN`: severity (Critical/High/Medium/Low) based on user impact, data integrity, security, money, compliance. Suggest a verification (test to write, manual check, question for product).
 
 ### 6. Visualize
-**Code-changing tasks (Refactor / Feature / Fix): required** — BEFORE, AFTER, and delta diagrams rendered from the session diagram folder and opened in the editor, with the comparison table in chat (SKILL.md → *Diagrams*; `comparison.md` only in a saved workspace). AFTER is drawn from the final code and bound to its file hashes (`--record-after`).
+**Code-changing tasks (Refactor / Feature / Fix): required** — BEFORE, AFTER, and side-by-side diagrams rendered from the session diagram folder and opened in the editor, with the comparison table in chat (SKILL.md → *Diagrams*; `comparison.md` only in a saved workspace). AFTER is drawn from the final code and bound to its file hashes (`--record-after`).
 Other comparisons: optional side-by-side flowchart (`mermaid-diagrams.md`): legacy and new subgraphs, dashed edges between mapped nodes, `MISSING` nodes with the `error` class, `ADDED` nodes highlighted.
 
 ### 7. Report

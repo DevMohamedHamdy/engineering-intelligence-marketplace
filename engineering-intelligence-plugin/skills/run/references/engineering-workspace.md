@@ -2,9 +2,9 @@
 
 **Load when:** the developer asked to save the work as Markdown docs in the project. SKILL.md decides *when*; this file defines *how*.
 
-**Optional, on request only.** By default the workflow writes no files into the project: diagrams are rendered from `.mmd` files in a session folder outside the project and opened as image tabs, and everything else goes in chat (SKILL.md → *Diagrams*). This saved workspace is for developers who want a persistent, navigable copy. It is explored **entirely inside the editor** — Markdown pages in the native Markdown Preview, diagrams as local SVG images. **Never open an external web browser.**
+**Optional, on request only.** By default the workflow writes no files into the project: diagrams are rendered from `.mmd` files in a session folder outside the project to PNG and opened as image tabs, and everything else goes in chat (SKILL.md → *Diagrams*). This saved workspace is for developers who want a persistent, navigable copy. It is explored **entirely inside the editor** — Markdown pages in the native Markdown Preview, diagrams as local SVG images. **Never open an external web browser.**
 
-The diagram rules in §3a (BEFORE/AFTER/delta ids, colours, node-ID stability) apply to the default session diagrams too.
+The diagram rules in §3a (BEFORE/AFTER ids, node-ID stability) apply to the default session diagrams too.
 
 ## 1. Location and structure
 
@@ -18,7 +18,7 @@ Default: `<target-project-root>/docs/engineering-intelligence/<task-name>/` wher
 | `flow-<subflow>.md` | One detailed subflow each (complex flows only) | `templates/business-logic-flow.md` |
 | `risks.md` | Findings and risks by severity, with source locations | `templates/review-report.md` sections 2–3, 6 |
 | `evidence.md` | Evidence classification per finding, summary counts, open questions, unverified assumptions, what was not examined | `references/evidence-model.md` |
-| `comparison.md` | Code-changing tasks: BEFORE/AFTER comparison — verdict, delta diagram, BEFORE and AFTER diagrams per flow, step mapping, behavior inventory (§3a) | `templates/workspace/comparison.md` |
+| `comparison.md` | Code-changing tasks: BEFORE/AFTER comparison — verdict, BEFORE and AFTER diagrams per flow, step mapping, behavior inventory (§3a) | `templates/workspace/comparison.md` |
 | `sources.md` | Every source file referenced, grouped by layer/component, with links and which pages cite it | — |
 | `diagrams/<id>.svg` | Self-contained rendered image of each diagram (offline, no scripts) | `scripts/render_workspace.py` |
 
@@ -84,14 +84,12 @@ The comparison answers one question for the developer: *did the logic stay the s
 |---------|----|-----------|------|----------|
 | BEFORE | `before-<name>` | original code (base commit or pre-change copies) | before the Plan Gate; frozen afterwards | `flow.md` / `architecture.md` |
 | AFTER | `after-<name>` | final code, re-traced (not the plan) | after the last code change: final review, its fixes, and test-driven fixes are done | `comparison.md` |
-| Delta | `delta-<name>` | AFTER structure + MISSING nodes from BEFORE | with AFTER | `comparison.md` |
 
 Rules:
-- **Same `<name>`, same node IDs** for a step that still exists, even if it moved to another file — the mapping table shows the new location. A new step gets a new ID; a removed step keeps its ID only in BEFORE (and as a dashed `missing` node in the delta).
-- **Delta colours** (classDefs in the template): `preserved` green · `changed` yellow · `added` blue · `missing` red dashed · `unknown` grey dashed. In delta diagrams these replace the evidence classes; evidence stays in the mapping table.
-- **Page order** in `comparison.md`: verdict and counts → delta diagram (at a glance) → per flow: BEFORE image, AFTER diagram, step mapping → architecture (or `N/A — no structural change`) → behavior inventory → differences needing a decision. Diagrams are stacked, not side by side (narrow previews).
+- **Same `<name>`, same node IDs** for a step that still exists, even if it moved to another file — the mapping table shows the new location. A new step gets a new ID; a removed step keeps its ID only in BEFORE.
+- **Page order** in `comparison.md`: verdict and counts → per flow: BEFORE image, AFTER diagram, step mapping → architecture (or `N/A — no structural change`) → behavior inventory → differences needing a decision. Diagrams are stacked, not side by side (narrow previews).
 - **Locations:** BEFORE as plain text `path:line` (those lines may no longer exist); AFTER as links to the current lines.
-- **Snapshot binding:** one `<!-- ei:after-hash <path> <sha256|deleted> -->` per Implementation Scope file, written when the AFTER trace is done. The render script (§4) fails with `stale_after` if any file changed afterwards → redraw AFTER, delta, and the mapping.
+- **Snapshot binding:** one `<!-- ei:after-hash <path> <sha256|deleted> -->` per Implementation Scope file, written when the AFTER trace is done. The render script (§4) fails with `stale_after` if any file changed afterwards → redraw AFTER and the mapping.
 - **Every one-sided node is classified:** a node ID in only one of `before-<name>` / `after-<name>` must appear in backticks in a mapping table (MISSING, ADDED, moved, or renamed). The script reports `unaccounted_nodes` otherwise.
 - `index.md` links `comparison.md` in its page table, and the verdict line is repeated in its executive overview.
 
@@ -141,7 +139,7 @@ Finds the editor hosting this session from the process ancestry (falls back to t
 ```bash
 python3 -I <skill-dir>/scripts/open_in_editor.py open --project <project-root> <workspace>/diagrams/<overview-id>.svg <workspace>/index.md
 ```
-Opens the files as tabs in the editor's current window (VS Code-family: `<cli> -r`); `index.md` last so it is focused. At the Review Gate (G3) open `diagrams/delta-<name>.svg` and `comparison.md` instead. The overview SVG opens in the editor's built-in image viewer, so a diagram is visible immediately. The script refuses URLs and HTML.
+Opens the files as tabs in the editor's current window (VS Code-family: `<cli> -r`); `index.md` last so it is focused. At the Review Gate (G3) open `diagrams/after-<name>.svg` and `comparison.md` instead. The overview SVG opens in the editor's built-in image viewer, so a diagram is visible immediately. The script refuses URLs and HTML.
 
 ### Preview
 Editor CLIs cannot open the Markdown Preview, and no other non-invasive automation exists (keyboard automation needs OS accessibility permission and is not used). Tell the developer exactly: **"In the `index.md` tab press Cmd+Shift+V (Ctrl+Shift+V), or Cmd/Ctrl+K V for side-by-side."** Then everything — diagrams, page links, source links — works inside the preview.

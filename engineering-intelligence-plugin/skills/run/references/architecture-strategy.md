@@ -43,7 +43,7 @@ Present a gate as a clear stop: summarize, list what will change, and ask for an
 
 - **G1 — Proposal approval:** mode, target structure, file-by-file plan, risks, what will *not* change, behavior that must be preserved (from `behavior-comparison.md` baseline if available), test plan.
 - **G2 — Pilot / plan scope approval:** exact files to modify/create/delete; confirm no dependency installs (or get separate approval per dependency).
-- **G3 — Review after implementation:** diff summary, behavior comparison on the changed slice (PRESERVED/CHANGED/MISSING/ADDED/UNKNOWN) with BEFORE / AFTER / delta diagrams from the final code (`engineering-workspace.md` §3a), results of tests actually run from the approved Verification Scope, the local review outcome (`coderabbit-review.md`; CodeRabbit or CLAUDE FALLBACK), deviations from plan. For L2, ask whether to proceed to L3.
+- **G3 — Review after implementation:** diff summary, behavior comparison on the changed slice (PRESERVED/CHANGED/MISSING/ADDED/UNKNOWN) with BEFORE / AFTER / side-by-side diagrams from the final code (`engineering-workspace.md` §3a), results of tests actually run from the approved Verification Scope, the local review outcome (`coderabbit-review.md`; CodeRabbit or CLAUDE FALLBACK), deviations from plan. For L2, ask whether to proceed to L3.
 - **G4 — Completion:** final comparison report, remaining UNKNOWNs, follow-ups.
 
 During L2/L3:

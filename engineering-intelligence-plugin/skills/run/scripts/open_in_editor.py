@@ -7,7 +7,7 @@ Usage:
 
 detect → JSON: editor name, app bundle, family, verified CLI, version, how it was detected,
          whether a Markdown-preview Mermaid extension is installed, and preview instructions.
-open   → opens the given .md / .svg files as tabs in the detected editor's current window
+open   → opens the given .md / .png / .svg files as tabs in the detected editor's current window
          (VS Code-family: `<cli> -r <files>`). Refuses URLs and .html files.
 
 Detection order (first match wins):
@@ -157,7 +157,7 @@ def main():
 
     bad = [f for f in a.files if re.match(r"^[a-z]+://", f) or f.lower().endswith((".html", ".htm"))]
     if bad or not a.files:
-        print(json.dumps({"status": "refused", "reason": "only local .md/.svg files are opened; never URLs or HTML", "files": bad}))
+        print(json.dumps({"status": "refused", "reason": "only local files (.png/.svg/.md) are opened; never URLs or HTML", "files": bad}))
         return 2
     files = [str(pathlib.Path(f).resolve()) for f in a.files]
     missing = [f for f in files if not os.path.isfile(f)]

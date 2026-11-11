@@ -15,7 +15,7 @@
 | Data model | `erDiagram` |
 | Types/interfaces relationships | `classDiagram` |
 | Legacy vs new side-by-side | two `subgraph`s in one `flowchart`, mapped edges dashed |
-| BEFORE / AFTER of a code change | `before-<name>` + `after-<name>` (same node IDs) + `delta-<name>` coloured by status — `engineering-workspace.md` §3a |
+| BEFORE / AFTER of a code change | `before-<name>` + `after-<name>` (same node IDs); the renderer adds the side-by-side `compare-<name>` — `engineering-workspace.md` §3a |
 
 Prefer several focused diagrams over one giant one. Soft limit: ~30 nodes per diagram; split by sub-flow beyond that and link the parts by name.
 
@@ -57,7 +57,7 @@ Two mechanisms, always both:
    ```
 
    - The href is **relative from the page's location** to the source file (workspace pages live in `docs/engineering-intelligence/<task-name>/`, so typically `../../../<path>`). Compute it; don't guess.
-   - Click links work only in Mermaid-aware renderers (e.g. GitHub, an editor with a Mermaid preview extension), not in the pre-rendered SVG images shown in the editor preview — the source map table is the reliable link.
+   - Click links work only in Mermaid-aware renderers (e.g. GitHub, an editor with a Mermaid preview extension), not in the pre-rendered images shown in the editor — the source map table is the reliable link.
    - `#Lnn` anchors work on GitHub/GitLab web views; local viewers may ignore the fragment.
    - `sequenceDiagram` and `stateDiagram` don't support `click`; rely on the source map table, and optionally use `Note over X: path#symbol` sparingly.
 

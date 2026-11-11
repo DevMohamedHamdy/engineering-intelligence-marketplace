@@ -10,7 +10,7 @@
 |------|------------------|
 | [Architecture](architecture.md) | {{components, layers, dependency diagram}} |
 | [Business Flow](flow.md) | {{flow overview diagram, step-by-step trace}}{{; subflows: [name](flow-name.md)}} |
-| [BEFORE / AFTER Comparison](comparison.md) | Code-changing tasks: did the logic stay the same? Delta diagram, BEFORE and AFTER flows, step mapping |
+| [BEFORE / AFTER Comparison](comparison.md) | Code-changing tasks: did the logic stay the same? BEFORE and AFTER flows, step mapping |
 | [Review Report](review.md) | Code-changing and review tasks: CodeRabbit / fallback findings, tests, readiness |
 | [Risks](risks.md) | Findings and risks by severity, with source locations |
 | [Evidence](evidence.md) | Evidence classification, open questions, unverified assumptions |

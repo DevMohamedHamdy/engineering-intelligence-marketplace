@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Render Mermaid diagrams to self-contained local SVG files (diagram folder or Engineering Workspace).
+"""Render Mermaid diagrams to local images: PNG in a diagram folder, SVG in a saved Engineering Workspace.
 
 Diagram folder (default, no Markdown): a temp folder OUTSIDE the project holding `<id>.mmd` files
-(e.g. before-<name>.mmd, after-<name>.mmd, delta-<name>.mmd). Each is rendered to `<id>.svg` next to it.
+(e.g. before-<name>.mmd, after-<name>.mmd). Each is rendered to a 2x `<id>.png` next to it, and each
+  before-/after- pair also to `compare-<name>.png` (BEFORE left, AFTER right, one image).
+  Intermediate SVGs stay under --tmp.
   --record-after <file ...> (with --project) stores the sha256 of those source files in after-hashes.json
   when the AFTER diagrams are rendered; any later run (incl. --check-only) reports `stale_after` if they changed.
 
@@ -38,8 +40,8 @@ What it does:
      the way a Markdown preview shows them — for visual inspection.
   Prints one JSON object. Exit 0 = all diagrams rendered and all references resolve; 1 = errors; 2 = could not run.
 
-Writes only <workspace_dir>/diagrams/*.svg and files under --tmp. Installs nothing. Opens no visible window.
-Rendering loads the Mermaid library (default: pinned jsDelivr URL, or --mermaid-js); viewing the SVGs needs no network.
+Writes only <diagram_dir>/*.png or <workspace_dir>/diagrams/*.svg, and files under --tmp. Installs nothing. Opens no visible window.
+Rendering loads the Mermaid library (default: pinned jsDelivr URL, or --mermaid-js); viewing the images needs no network.
 """
 import argparse, hashlib, html, json, os, pathlib, re, shutil, subprocess, sys
 
@@ -127,6 +129,44 @@ def standalone_svg(svg):
         head = head[:-1] + f' width="{float(w):.0f}" height="{float(h):.0f}">'
         svg = head + f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#ffffff"/>' + svg[head_end:]
     return svg
+
+
+def side_by_side(before_svg, after_svg, name):
+    """One SVG with BEFORE on the left and AFTER on the right, each under a title."""
+    def size(svg):
+        head = svg[:svg.index(">")]
+        return float(re.search(r'\swidth="([\d.]+)"', head).group(1)), float(re.search(r'\sheight="([\d.]+)"', head).group(1))
+    (bw, bh), (aw, ah) = size(before_svg), size(after_svg)
+    pad, top, gap = 24, 56, 48
+    w, h = pad + bw + gap + aw + pad, top + max(bh, ah) + pad
+    ax = pad + bw + gap
+    place = lambda svg, x: svg.replace("<svg", f'<svg x="{x:.0f}" y="{top}"', 1)
+    title = lambda x, t: (f'<text x="{x:.0f}" y="34" font-family="sans-serif" font-size="20" '
+                          f'font-weight="bold" fill="#333">{t}</text>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0f}" height="{h:.0f}" viewBox="0 0 {w:.0f} {h:.0f}">'
+            f'<rect width="100%" height="100%" fill="#ffffff"/>'
+            f'{title(pad, "BEFORE — " + html.escape(name))}{title(ax, "AFTER — " + html.escape(name))}'
+            f'<line x1="{pad + bw + gap / 2:.0f}" y1="12" x2="{pad + bw + gap / 2:.0f}" y2="{h - 12:.0f}" '
+            f'stroke="#bbb" stroke-width="2" stroke-dasharray="6 6"/>'
+            f'{place(before_svg, pad)}{place(after_svg, ax)}</svg>')
+
+
+def to_png(browser, base, svg_path, png_path, timeout):
+    """Screenshot a standalone SVG at 2x into a PNG of exactly its size (headless)."""
+    png_path.unlink(missing_ok=True)
+    head = svg_path.read_text(encoding="utf-8")[:2000]
+    w = int(float(re.search(r'\swidth="([\d.]+)"', head).group(1)))
+    h = int(float(re.search(r'\sheight="([\d.]+)"', head).group(1)))
+    page = svg_path.with_suffix(".html")
+    page.write_text(f"<!doctype html><body style='margin:0;background:#fff'>"
+                    f"<img style='display:block' src='{svg_path.as_uri()}'></body>", encoding="utf-8")
+    try:
+        subprocess.run([browser, *base, "--hide-scrollbars", "--force-device-scale-factor=2",
+                        f"--window-size={w},{h}", f"--screenshot={png_path}", page.as_uri()],
+                       capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return png_path.is_file()
 
 
 def check_refs(ws):
@@ -289,15 +329,31 @@ def main():
         out = json.loads(html.unescape(m.group(1)))
         if any(not d.get("file") for d in diagrams.values()):
             (ws / "diagrams").mkdir(exist_ok=True)
+        svgs = {}
         for did, r in out.items():
             if "error" in r:
                 errors[did] = f'{diagrams[did]["page"]}: {r["error"][:300]}'
-                continue
-            path = (ws / f"{did}.svg") if diagrams[did].get("file") else (ws / "diagrams" / f"{did}.svg")
-            path.write_text(standalone_svg(r["svg"]), encoding="utf-8")
+            else:
+                svgs[did] = standalone_svg(r["svg"])
+        for did in [d for d in svgs if d.startswith("before-") and diagrams[d].get("file")]:
+            if f"after-{did[7:]}" in svgs:
+                svgs[f"compare-{did[7:]}"] = side_by_side(svgs[did], svgs[f"after-{did[7:]}"], did[7:])
+        res["foreign_object_svgs"] = [d for d, s in svgs.items() if "<foreignObject" in s]
+        png_dir = tmp / "svg"
+        for did, svg in svgs.items():
+            if did.startswith("compare-") or diagrams[did].get("file"):  # diagram folder → PNG next to the .mmd
+                png_dir.mkdir(exist_ok=True)
+                src = png_dir / f"{did}.svg"
+                src.write_text(svg, encoding="utf-8")
+                path = ws / f"{did}.png"
+                if not to_png(browser, base, src, path, a.timeout):
+                    errors[did] = "PNG export failed"
+                    continue
+            else:  # saved Markdown workspace → SVG referenced by the pages
+                path = ws / "diagrams" / f"{did}.svg"
+                path.write_text(svg, encoding="utf-8")
             written.append(str(path.relative_to(ws)))
-        res.update(svgs=written, render_errors=errors,
-                   foreign_object_svgs=[s for s in written if "<foreignObject" in (ws / s).read_text(encoding="utf-8")])
+        res.update(images=written, render_errors=errors)
         if written:
             gallery = tmp / f"{ws.name}-svg-check.html"
             gallery.write_text("<!doctype html><body style='margin:12px;background:#1e1e1e'>" + "".join(

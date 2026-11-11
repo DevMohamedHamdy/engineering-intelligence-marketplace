@@ -49,7 +49,7 @@ The default for Refactor / Fix / Feature / Review on named files. Target: as few
 4. **Plan Gate** (not for Fix — it posts the root cause + change in chat and edits directly) — ≤ 10 lines: what will change and why, the behavior that must stay the same, interface preserved (yes / exactly what changes), a `Standard:` line (`references/implementation-standard.md` §4), tests that will run. One `AskUserQuestion`: Approve (Recommended) · Adjust · Cancel.
 5. **Implement**, then one CodeRabbit review of the change (*Review loop*). Fix validated findings in the named files; re-review only if fixes were applied; at most 3 review runs in total.
 6. **Verify**: run the matched tests/checks (`NOT RUN` + reason otherwise).
-7. **AFTER** diagram(s) from the final code + delta diagram → render and open → **BEFORE/AFTER comparison in chat** → **Review Gate** (Accept · Request changes). Nothing is committed.
+7. **AFTER** diagram(s) from the final code → render and open (BEFORE · AFTER · side-by-side) → **BEFORE/AFTER comparison in chat** → **Review Gate** (Accept · Request changes). Nothing is committed.
 
 ## Full path (broad requests)
 
@@ -115,7 +115,7 @@ Then: trace (`references/business-logic-tracing.md`) → BEFORE diagrams → Pla
 | Plan Gate | ✓ | ✓ | — (ticket = approval) | — | — |
 | Implement + CodeRabbit review loop | ✓ | ✓ | ✓ | review only | — |
 | Verification (tests actually run) | ✓ | ✓ | ✓ | — | — |
-| AFTER + delta diagrams from the final code, comparison in chat | ✓ | ✓ | ✓ | before/after pair | — |
+| AFTER diagrams from the final code (+ side-by-side), comparison in chat | ✓ | ✓ | ✓ | before/after pair | — |
 
 ### 1. Refactor Existing Code
 Load: `references/implementation-standard.md`, `references/refactoring-review.md` (part B), `references/behavior-comparison.md`; for broad scope also `references/architecture-strategy.md`, `references/business-logic-tracing.md`.
@@ -147,21 +147,20 @@ Read-only. Load by focus: `references/project-discovery.md`, `references/archite
 
 Per `references/mermaid-diagrams.md`, from code you read — never from names or the plan. Node IDs stable across BEFORE and AFTER. Significant nodes carry evidence classes; each diagram gets a short `Node → path:line` list in chat.
 
-**Where:** a session diagram folder outside the project — the session scratchpad if one exists, else `$TMPDIR/ei-<task>-<subject>/`. One `<id>.mmd` file per diagram: `before-<name>`, `after-<name>`, `delta-<name>`.
+**Where:** a session diagram folder outside the project — the session scratchpad if one exists, else `$TMPDIR/ei-<task>-<subject>/`. One `<id>.mmd` file per diagram: `before-<name>`, `after-<name>`. No delta diagram.
 
 **Render and open:**
 ```bash
 python3 -I <skill-dir>/scripts/render_workspace.py <diagram-dir> --tmp <diagram-dir>/.render --project <root> [--record-after <files...>]
-python3 -I <skill-dir>/scripts/open_in_editor.py open --project <root> <diagram-dir>/<id>.svg ...
+python3 -I <skill-dir>/scripts/open_in_editor.py open --project <root> <diagram-dir>/<id>.png ...
 ```
-Each diagram opens as **its own image tab** in the developer's editor (rendering is headless and invisible; never a browser, never HTML). Diagrams are never shown through a `.md` file or the Markdown preview — no Markdown file is created for them; only the `.mmd` source and its `.svg` in the session folder. Open only the diagrams the task needs. If rendering or opening fails, say exactly why and show the Mermaid source in chat.
+Each diagram opens as **its own image tab** in the developer's editor (rendering is headless and invisible; never a browser, never HTML). Diagrams are never shown through a `.md` file or the Markdown preview — no Markdown file is created for them; only the `.mmd` source and its `.png` (2x, sharp, zoomable) in the session folder. Open only the diagrams the task needs. If rendering or opening fails, say exactly why and show the Mermaid source in chat.
 
 **Sequence (always, for code-changing tasks):**
 1. **BEFORE** — from the original code, rendered and opened **before the Plan Gate**. Frozen afterwards.
 2. **AFTER** — drawn **only after the last code change** (after the review loop, its fixes, and verification), by re-reading the final code (prefer a read-only subagent given only the final files, not the BEFORE trace or the plan). Same node IDs where the step still exists. Render with `--record-after <changed files>`: the script stores their hashes, and `stale_after` on any later run means the code changed — redraw.
-3. **Delta** — the AFTER structure plus removed steps, coloured: `preserved` green · `changed` yellow · `added` blue · `missing` red dashed · `unknown` grey dashed (classDefs in `references/engineering-workspace.md` §3a).
-4. Open `delta`, `before`, `after` as tabs (delta last, so it's in front).
-5. **Comparison in chat:** verdict (LOGIC PRESERVED · PRESERVED WITH INTENDED CHANGES · UNEXPLAINED DIFFERENCES), counts, and one table — step · BEFORE `path:line` · AFTER `path:line` · status · intentional? The render result's `before_after_pairs` lists node IDs present on only one side; every one of them must be in the table (MISSING, ADDED, moved, renamed). Method: `references/behavior-comparison.md`.
+3. **Side-by-side** — the renderer also writes `compare-<name>.png` for each BEFORE/AFTER pair: BEFORE on the left, AFTER on the right, in one image. Open `before`, `after`, `compare` as tabs (`compare` last, so the side-by-side view is in front).
+4. **Comparison in chat:** verdict (LOGIC PRESERVED · PRESERVED WITH INTENDED CHANGES · UNEXPLAINED DIFFERENCES), counts, and one table — step · BEFORE `path:line` · AFTER `path:line` · status · intentional? The render result's `before_after_pairs` lists node IDs present on only one side; every one of them must be in the table (MISSING, ADDED, moved, renamed). Method: `references/behavior-comparison.md`.
 
 The Review Gate is not reached while AFTER is stale or any one-sided node is unclassified.
 
@@ -180,7 +179,7 @@ Method: `references/coderabbit-review.md` §2–7.
 
 1. Inspect the complete diff yourself (`git diff -- <files>`), not your memory of intent.
 2. Run the approved Verification Scope; report command, exit status, counts, failures — or `NOT RUN` + reason. A failure that leads to a fix goes through the review loop again.
-3. AFTER + delta diagrams and the comparison (above).
+3. AFTER + side-by-side diagrams and the comparison (above).
 4. **Review Gate in chat** (≤ ~20 lines): readiness (READY · READY WITH OPEN DECISIONS · NOT READY), files changed, reviewer (CodeRabbit or CLAUDE FALLBACK + why), findings fixed / rejected / open by severity, `Standard: met` or exceptions, tests, comparison verdict + table, remaining risks. Lead with blockers: unresolved `CRITICAL`/`HIGH`, `MISSING` or unexplained `CHANGED` behavior, failing tests. Then one question: Accept (Recommended) · Request changes. "Request changes" → implement → review loop → redraw AFTER.
 
 ## Output

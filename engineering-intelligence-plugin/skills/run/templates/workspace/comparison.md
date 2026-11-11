@@ -13,28 +13,7 @@
      Remove these guidance comments, keep the ei:after-hash lines. -->
 <!-- ei:after-hash {{src/path/file.ext}} {{sha256}} -->
 
-## 1. What changed, at a glance
-<!-- One delta diagram per compared flow: the AFTER structure, nodes coloured by comparison status. MISSING nodes stay in, dashed and red. -->
-<!-- ei:diagram id=delta-{{flow}} -->
-![What changed — {{flow name}}](diagrams/delta-{{flow}}.svg)
-
-<details><summary>Mermaid source</summary>
-
-```mermaid
-flowchart TD
-  %% node ids identical to before-{{flow}} / after-{{flow}}
-  classDef preserved fill:#e6f4ea,stroke:#2e7d32;
-  classDef changed fill:#fff8e1,stroke:#f9a825,stroke-width:2px;
-  classDef added fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
-  classDef missing fill:#ffebee,stroke:#c62828,stroke-dasharray:4 2;
-  classDef unknown fill:#f5f5f5,stroke:#757575,stroke-dasharray:2 2;
-```
-
-</details>
-
-Legend: green = PRESERVED · yellow = CHANGED · blue = ADDED · red dashed = MISSING · grey dashed = UNKNOWN
-
-## 2. Business flow — {{flow name}}
+## 1. Business flow — {{flow name}}
 
 ### BEFORE
 ![BEFORE — {{flow name}}](diagrams/before-{{flow}}.svg)
@@ -60,15 +39,15 @@ flowchart TD
 | `{{S3}}` | {{Charge card}} | `{{src/old.ts:40}}` | [{{src/new.ts:12}}](../../../{{src/new.ts}}#L{{12}}) | {{PRESERVED}} | — | {{VERIFIED}} |
 | `{{S5}}` | {{Retry on timeout}} | `{{src/old.ts:88}}` | — (searched: {{…}}) | {{MISSING}} | {{no}} | {{VERIFIED}} |
 
-## 3. Architecture
-<!-- Same structure as section 2 with before-architecture / after-architecture, when the structure changed. Otherwise: "N/A — no structural change (files: …)". -->
+## 2. Architecture
+<!-- Same structure as section 1 with before-architecture / after-architecture, when the structure changed. Otherwise: "N/A — no structural change (files: …)". -->
 
-## 4. Behavior inventory
+## 3. Behavior inventory
 | ID | Behavior | BEFORE | AFTER | Status | Intentional? | Risk | Verification |
 |----|----------|--------|-------|--------|--------------|------|--------------|
 | B-L1 | {{When X under Y, does Z}} | `{{path:line}}` | [{{path:line}}](../../../{{path}}#L{{n}}) | {{PRESERVED}} | — | — | {{test / read}} |
 
-## 5. Differences that need a decision
+## 4. Differences that need a decision
 | ID | Status | What differs | Severity | Suggested action |
 |----|--------|--------------|----------|------------------|
 
