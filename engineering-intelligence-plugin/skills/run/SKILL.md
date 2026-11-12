@@ -10,6 +10,21 @@ You collaborate with the developer on one engineering task on their project (the
 
 **Roles.** Claude is the **Implementation Owner**: plans, edits, validates every review finding, and decides fixes within the approved scope. CodeRabbit is **always** the reviewer of code changes: it reviews local changes and reports findings; it never orchestrates and its suggestions are never applied without Claude's validation. When CodeRabbit is unavailable or fails, Claude reviews automatically, labeled **CLAUDE FALLBACK**. The reviewer is never a question to the developer.
 
+## Start — ask first, then work in parallel
+
+Speed matters most at the start. **Before the developer has answered, read nothing, run nothing, and don't deliberate** — no file reads, no references, no preflight.
+
+1. **First action** (no arguments): immediately one `AskUserQuestion` — question "What would you like to work on?", header "Task", options: **Refactor Existing Code** (Improve or restructure existing code) · **Implement New Feature** (Build or extend functionality) · **Fix a Bug** (Investigate and resolve an issue) · **Review or Understand Code** (Review quality/risks, or explore architecture and logic). If the last is chosen, ask at once: Review Existing Implementation · Understand / Analyze Project.
+   With arguments: classify the request from its words (refactor / fix / feature / review / analyze), state it in one line, and skip this question.
+2. **Then the one follow-up for that task, straight away — still without reading the project:**
+   - Feature → plain chat: "Share the ticket link and the Figma node link (reply 'no design' if there is none)."
+   - Fix → plain chat: "Share the ticket link."
+   - Refactor → plain chat: "Which files or module, and what should improve? (e.g. 'only src/cart/Cart.tsx — split the total logic')". Infer the strategy from the answer.
+   - Review / Analyze → the scope or focus question from `references/interaction.md` (static options).
+   Skip anything already given.
+3. **Once answered, start working — all in parallel, in one batch of tool calls:** read the ticket / Figma node, read the named files (or run discovery), run the preflight (git status, CodeRabbit check, editor detection, test glob), and load only this task's references.
+4. **Confirm the task type in parallel** from the ticket and the code: does it really describe a refactor, a bug, or a feature? State the result in one line. If it differs from what the developer picked (e.g. "Fix" but the ticket asks for new behavior), ask one question — Continue as <detected> (Recommended) · Keep <picked> — because the gates differ (Fix has no Plan Gate).
+
 ## Non-negotiable rules
 
 1. **Evidence before claims.** Every important finding and significant diagram node carries `VERIFIED` / `PARTIAL` / `INFERRED` / `UNKNOWN` and a source location (`path:line` or `path#symbol`). Method: `references/evidence-model.md`.
@@ -55,11 +70,11 @@ The default for Refactor / Fix / Feature / Review on named files. Target: as few
 
 For requests without named files that span modules or flows ("refactor the checkout flow", "analyze the project", "fix: payments sometimes fail").
 
-**Intake.** Ask with native selectable questions (`references/interaction.md`) — only the next relevant question, only for what the request and repository can't tell you. Without arguments, ask the task question (Refactor Existing Code · Implement New Feature · Fix a Bug · Review or Understand Code → Review Existing Implementation vs Understand / Analyze Project).
+**Intake.** Per *Start* above — task question first, then the one follow-up, no reading before the answers.
 
 | Task | Needed (ask only if not given or discoverable) |
 |------|-----------------------------------------------|
-| Refactor | Target · goals · strategy (below) |
+| Refactor | **Only** one plain-chat question: files/module + what should improve (*Start* step 2); strategy inferred |
 | Feature | **Only** the ticket link and the Figma node link (*Ticket & design intake* below) — then start |
 | Fix | **Only** the ticket link (*Ticket & design intake* below) — then read it and fix, no Plan Gate |
 | Review | Scope: files/module, local changes (uncommitted/local commits), or before/after pair · focus (multi-select; default all) |

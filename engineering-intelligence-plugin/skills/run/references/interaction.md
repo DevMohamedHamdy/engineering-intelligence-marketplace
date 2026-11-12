@@ -1,6 +1,6 @@
 # Interaction: native questions (AskUserQuestion)
 
-**Load when:** starting `/ei:run`, and whenever the workflow needs a developer decision. SKILL.md decides *when* to ask; this file defines *how* and the standard questions.
+**Load when:** the workflow needs a developer decision after the start. **Not** at start: the task question and first follow-up are in SKILL.md *Start* and are asked before reading anything, this file included. SKILL.md decides *when* to ask; this file defines *how* and the standard questions.
 
 ## Rules
 
@@ -39,9 +39,8 @@ With arguments: infer the task, state it in one line, and continue; ask the task
 
 | Task | Question (header) | Options | Select |
 |------|-------------------|---------|--------|
-| Refactor | Which module or flow should be refactored? (Target) | 3–4 discovered candidates | single |
-| Refactor | What should the refactor improve? (Goals) | Readability & size · Duplication · Testability · Coupling & boundaries | multi |
-| Refactor | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
+| Refactor | **The only question:** one plain-chat message — which files/module and what should improve (SKILL.md *Start*) | — | — |
+| Refactor (only if the answer gives no hint) | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
 | Refactor → Restructure | Which architecture mode should guide it? (Mode) | Existing conventions (Recommended) · Best practice for this stack · Hybrid · Follow an example module | single |
 | Feature | **The only question:** one plain-chat message asking for the ticket link and the Figma node link ("no design" accepted). Then start — see SKILL.md *Ticket & design intake* | — | — |
 | Fix | **The only question:** one plain-chat message asking for the ticket link. Then read it (Jira via the Atlassian connector) and fix it — no Plan Gate | — | — |
