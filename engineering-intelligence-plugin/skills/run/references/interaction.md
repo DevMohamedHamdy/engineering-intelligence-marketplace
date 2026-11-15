@@ -7,12 +7,12 @@
 1. **Every decision with a predefined set of choices uses `AskUserQuestion`** — tasks, targets with known candidates, strategy, scope, approvals, finding decisions, next steps. Never ask the developer to type a number or option name.
 2. **Ask only the next relevant question.** One question per call by default; batch at most 2–4 questions in one call only when they are independent and all needed now . No questionnaires.
    **Never ask:** which reviewer (always CodeRabbit, automatic Claude fallback), consent to send code to CodeRabbit (standing developer instruction), whether to allow the fallback, collaboration mode (Hybrid unless the developer says otherwise), depth, output location, or whether to open diagrams (they always open in the editor). For Feature and Fix, never ask for description, acceptance criteria, symptoms, observed/expected, reproduction steps, or environment — they come from the ticket. When the developer names files, skip the task/target questions too.
-3. **Skip what is known.** If the request, earlier answers, or the repository already answer a question, don't ask it — state the assumption in one line instead.
+3. **Skip only what the developer said.** If the request or earlier answers already answer a question, don't ask it. Never skip a question because the repository seems to answer it, and never fill a gap with an assumption — ask.
 4. **Tool limits:** 2–4 options per question; `header` ≤ 12 characters; previews only on single-select questions. **"Other" (free text) is added automatically** — never add an "Other" option yourself; mention it in the question when free text is likely ("…or describe it in Other").
 5. **Recommended option first**, labelled `(Recommended)`, when there is a sensible default.
 6. **Multi-select** (`multiSelect: true`) when choices are independent and several may apply (review focus, refactor goals, outputs).
 7. **Self-contained questions:** the dialog may hide earlier chat text. Each question names what it is about; approvals put the key details in the recommended option's `preview` (files, scope, risks).
-8. **Candidate options from the repository:** for "which module/flow/files?" do a quick read-only look (top-level layout, route/screen/handler names — no deep reading) and offer up to 3–4 real candidates, with the most likely first.
+8. **No default targets:** "which files/module/flow?" is always a plain-chat question the developer answers in their own words. Never pre-select, suggest, or mark as Recommended any file, module, or flow from the repository.
 9. **Open-ended input** (bug symptoms, feature description, logs) is not forced into fake options: offer a short categorizing question whose "Other" accepts the description, or — when the answer is inherently free text (a pasted stack trace, acceptance criteria) — ask one short plain-chat question.
 10. **Approval semantics:** only the explicit approve option counts as approval. "Other" text that is not an unambiguous approval is treated as an adjustment: incorporate it and ask again. A rejected or dismissed question is not approval.
 11. **Fallback:** if `AskUserQuestion` is unavailable or fails in this environment, ask the same question in chat as a short numbered list and wait.
@@ -39,19 +39,19 @@ With arguments: infer the task, state it in one line, and continue; ask the task
 
 | Task | Question (header) | Options | Select |
 |------|-------------------|---------|--------|
-| Refactor | **The only question:** one plain-chat message — which files/module and what should improve (SKILL.md *Start*) | — | — |
-| Refactor (only if the answer gives no hint) | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
+| Refactor | **Always asked, then wait:** one plain-chat message — which files/module/flow and what should improve (SKILL.md *Start*). Never choose a target yourself | — | — |
+| Refactor (only if the answer doesn't say what should improve) | Which refactoring strategy? (Strategy) | Improve Structure · Extract & Separate Logic · Restructure Architecture · Custom Strategy | single |
 | Refactor → Restructure | Which architecture mode should guide it? (Mode) | Existing conventions (Recommended) · Best practice for this stack · Hybrid · Follow an example module | single |
 | Feature | **The only question:** one plain-chat message asking for the ticket link and the Figma node link ("no design" accepted). Then start — see SKILL.md *Ticket & design intake* | — | — |
 | Fix | **The only question:** one plain-chat message asking for the ticket link. Then read it (Jira via the Atlassian connector) and fix it — no Plan Gate | — | — |
 | Review | What should be reviewed? (Scope) | Uncommitted local changes · Local commits not yet pushed · A module or files · Before vs after comparison | single |
 | Review | What should the review focus on? (Focus) | Correctness & bugs · Security · Code quality & maintainability · Tests & regression risk | multi |
 | Analyze | What do you want to understand? (Focus) | Project overview · A business flow or feature · Architecture of a module · A specific question | single |
-| Analyze | Which flow/module? (Target) | 3–4 discovered candidates | single |
+| Analyze | Which flow/module? — plain chat, developer's own words | — | — |
 
 ## Gate and decision questions
 
-Always present the full content in chat first, then ask. Put a condensed version in the recommended option's `preview`.
+Always present the full content in chat first, then ask. For the Scope Gate and Plan Gate, put the **full plan** (not condensed) in the `preview` of Approve and Adjust; "Adjust" → ask in plain chat what to change, post the revised full plan, ask again (SKILL.md *Plan Gate — show the plan first*). Other gates: a condensed version in the recommended option's `preview`.
 
 | Moment | Question (header) | Options |
 |--------|-------------------|---------|
