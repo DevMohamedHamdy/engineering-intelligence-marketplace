@@ -34,7 +34,9 @@ class LiveLifecycleTest(unittest.TestCase):
         code, _ = live("status", str(self.d), "rating", "Adding formatRating()")
         self.assertEqual(L.lint((self.d / "live-rating.mmd").read_text())["meta"]["status"], "Adding formatRating()")
 
+        (self.d / "live-rating.history.json").write_text("{}")
         code, res = live("finish", str(self.d), "rating")
+        self.assertFalse((self.d / "live-rating.history.json").exists(), "finish clears the step history")
         self.assertEqual(code, 0, res)
         self.assertFalse((self.d / "live-rating.mmd").exists())
         meta = L.lint((self.d / "after-rating.mmd").read_text())["meta"]
@@ -60,6 +62,46 @@ class LiveLifecycleTest(unittest.TestCase):
         self.assertIn("BEFORE vs LIVE", html)
         self.assertIn("live — updating", html)
         self.assertIn("Now: Adding formatRating()", html)
+
+
+class EditHookTest(unittest.TestCase):
+    """While LIVE is active, every project edit gets a 'draw this edit' reminder; silent otherwise."""
+    HOOK = HERE.parent / "hooks" / "live_reminder.py"
+
+    def setUp(self):
+        self.d = pathlib.Path(tempfile.mkdtemp(prefix="ei-hook-"))
+        self.proj = self.d / "app"
+        (self.proj / "src").mkdir(parents=True)
+        self.diag = self.d / "diagrams"
+        self.diag.mkdir()
+        shutil.copy(HERE / "fixtures" / "diagrams" / "before-rating.mmd", self.diag / "before-rating.mmd")
+
+    def tearDown(self):
+        live("finish", str(self.diag), "rating", "--project", str(self.proj))
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def hook(self, path):
+        p = subprocess.run([sys.executable, "-I", str(self.HOOK)], input=json.dumps(
+            {"tool_name": "Edit", "tool_input": {"file_path": str(path)}}), capture_output=True, text=True)
+        return json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"] if p.stdout.strip() else None
+
+    def test_reminder_only_while_live(self):
+        self.assertIsNone(self.hook(self.proj / "src" / "a.tsx"), "no LIVE yet")
+        live("start", str(self.diag), "rating", "--project", str(self.proj))
+        msg = self.hook(self.proj / "src" / "a.tsx")
+        self.assertIn("You just edited src/a.tsx", msg)
+        self.assertIn("yes/no branches", msg)
+        self.assertIn(f'live_diagram.py status "{self.diag.resolve()}" rating', msg)
+        self.assertIsNone(self.hook(self.d / "elsewhere.ts"), "outside the project")
+        self.assertIsNone(self.hook(self.diag / "live-rating.mmd"), "editing the diagram itself")
+        live("finish", str(self.diag), "rating", "--project", str(self.proj))
+        self.assertIsNone(self.hook(self.proj / "src" / "a.tsx"), "after finish")
+
+    def test_hooks_json_registers_post_edit_hook(self):
+        cfg = json.loads((HERE.parent / "hooks" / "hooks.json").read_text())
+        entry = cfg["hooks"]["PostToolUse"][0]
+        self.assertEqual(entry["matcher"], "Edit|Write|MultiEdit")
+        self.assertIn("${CLAUDE_PLUGIN_ROOT}/hooks/live_reminder.py", entry["hooks"][0]["command"])
 
 
 if __name__ == "__main__":

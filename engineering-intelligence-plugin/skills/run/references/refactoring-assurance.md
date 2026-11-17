@@ -4,7 +4,7 @@
 
 | File | Owner (script) | Holds |
 |------|----------------|-------|
-| `*.mmd`, `*.svg`, `compare-*.svg`, `diagram-*.svg`, `diagrams.html` | `render_workspace.py`, `live_diagram.py` | before / proposed / live / after diagrams |
+| `*.mmd`, `*.svg`, `compare-*.svg`, `diagram-*.svg`, `diagrams.html` | `render_workspace.py`, `live_diagram.py` | before / live / after diagrams |
 | `decisions.json` | `decision_records.py` | decisions, approvals, outcomes, history |
 | `workflow.json` | `final_report.py plan / approve-plan / step` | the plan (P1…Pn), developer plan approval, execution log |
 | `audit.json` | `business_audit.py` | baseline rules, diff map, findings, marks |
@@ -18,7 +18,7 @@
 2. Plan: `final_report.py plan <session> --json …` (same steps P1…Pn as the chat plan, each listing its decisions) → Plan Gate → on Approve: `approve-plan --via "Plan Gate"` and the decision approvals. Changing the plan after approval voids the plan approval (re-ask).
 3. Execution: after each plan step, `final_report.py step <session> P<n> --status done|deviated|failed|skipped [--note] [--files] [--recovery]` (deviated/failed need a note). Deviations from an approved decision follow `decision-records.md` (supersede, ask).
 4. After the last change: audit (`business_audit.py run --side after`, `diff`, independent `finding`s, `check`) → `evidence_ledger.py import-decisions` (decision evidence into the ledger, idempotent) → `assurance.py assess <session>` → `benchmark.py measure <session> --approved-files <Implementation Scope files>`.
-5. `final_report.py build <session> --out <dir> --project <root> --title "<task>"` → `report.md`, `report.html` (open with `open_in_editor.py`'s browser fallback or the viewer link), `report.json`, plus copies of every record and the rendered diagrams — the export does not depend on the session folder. In a saved workspace, `--out <workspace>/report`.
+5. `final_report.py build <session> --out <dir> --project <root> --title "<task>"` → `report.md`, `report.html` (a portable copy for sharing — never opened or linked by EI; show the developer `report.md` in an editor tab with `open_in_editor.py open <out>/report.md`), `report.json`, plus copies of every record and the rendered diagrams — the export does not depend on the session folder. In a saved workspace, `--out <workspace>/report`.
 6. At the Review Gate, quote the assurance verdict, the final recommendation, and the benchmark's regressed dimensions — from the report, not from memory.
 
 ## Rules

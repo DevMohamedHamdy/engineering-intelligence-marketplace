@@ -13,7 +13,10 @@ So EI renders everything the developer needs into those files:
 Pure Python, stdlib only: it composes the SVGs Mermaid already produced (nested <svg> elements); nothing is rendered
 again and nothing needs JavaScript (image tabs never run scripts).
 """
-import html, pathlib, re
+import html, pathlib, re, sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import diagram_lint as L  # noqa: E402
 
 FONT = "ui-sans-serif,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 BADGE = {  # snapshot → (label, fill, text)
@@ -37,6 +40,32 @@ DIFF_CSS = (
     "path.ei-removed{stroke:#b91c1c!important;stroke-width:2.5px!important;stroke-dasharray:6 3!important}"
     "path.ei-changed{stroke:#b45309!important;stroke-width:2.5px!important}"
 )
+NOW = "#2563eb"  # the part changed in the latest LIVE step: blue, distinct from added/removed/changed
+NOW_CSS = (
+    f".ei-now rect,.ei-now polygon,.ei-now circle,.ei-now ellipse,.ei-now path.basic"
+    f"{{stroke:{NOW}!important;stroke-width:4px!important;stroke-dasharray:0!important;fill:#dbeafe!important;"
+    f"filter:drop-shadow(0 0 6px rgba(37,99,235,.65))}}"
+    f"rect.actor.ei-now{{stroke:{NOW}!important;stroke-width:4px!important;fill:#dbeafe!important}}"
+    f"path.ei-now{{stroke:{NOW}!important;stroke-width:3.5px!important;stroke-dasharray:0!important;"
+    f"filter:drop-shadow(0 0 4px rgba(37,99,235,.6))}}"
+    ".ei-now-tag rect{fill:#2563eb!important;stroke:#ffffff!important;stroke-width:1.5px!important;filter:none!important}"
+    ".ei-now-tag text{fill:#ffffff!important;stroke:none!important;font-weight:700}"
+)
+
+
+def scoped_css(svgs):
+    """The diff/NOW rules, scoped to each nested Mermaid SVG id with a doubled class, so they outrank Mermaid's own
+    `#<id> .added rect{...!important}` classDef rules (same !important, higher specificity)."""
+    ids = [m.group(1) for svg in svgs for m in [re.search(r'<svg\b[^>]*?\sid="([^"]+)"', svg[:3000])] if m]
+    out = []
+    for rule in filter(None, (DIFF_CSS + NOW_CSS).split("}")):
+        sel, body = rule.split("{", 1)
+        sels = [re.sub(r"\.(ei-[\w-]+)", r".\1.\1", x.strip()) for x in sel.split(",")]
+        out.append(",".join(f"#{i} {x}" for i in ids for x in sels) + "{" + body + "}")
+    return "".join(out)
+
+
+HISTORY_KEEP = 4  # earlier LIVE steps listed in the header
 PAD, GAP, PANE_HEAD = 24, 32, 58
 
 
@@ -106,6 +135,75 @@ def mark(svg, kind, nodes, edges, cls):
     return svg
 
 
+def _matching_close(svg, start):
+    """Index of the </g> that closes the <g ...> opening at `start`."""
+    depth = 0
+    for m in re.finditer(r"<g\b[^>]*?(/?)>|</g>", svg[start:]):
+        if m.group(0) == "</g>":
+            depth -= 1
+            if depth == 0:
+                return start + m.start()
+        elif not m.group(1):
+            depth += 1
+    return None
+
+
+def _half_size(chunk):
+    """Half width/height of a node's shape (rect, or polygon such as a decision diamond) in node coordinates."""
+    r = re.search(r'<rect\b[^>]*?\swidth="([\d.]+)"[^>]*?\sheight="([\d.]+)"', chunk)
+    if r:
+        return float(r.group(1)) / 2, float(r.group(2)) / 2
+    p = re.search(r'<polygon\b[^>]*?\spoints="([^"]+)"', chunk)
+    if p:
+        pts = [tuple(map(float, xy.split(","))) for xy in p.group(1).split() if "," in xy]
+        if pts:
+            xs, ys = [a for a, _ in pts], [b for _, b in pts]
+            return (max(xs) - min(xs)) / 2, (max(ys) - min(ys)) / 2
+    return 40.0, 20.0
+
+
+def now_tags(svg, kind, nodes):
+    """Add a small NOW pill to the top-right corner of each node changed in the latest LIVE step."""
+    if kind not in ("flowchart", "state"):
+        return svg
+    prefix = "flowchart" if kind == "flowchart" else "state"
+    for n in nodes:
+        m = re.search(rf'<g\b[^>]*\bid="{prefix}-{re.escape(n)}-\d+"[^>]*>', svg)
+        if not m:
+            continue
+        end = _matching_close(svg, m.start())
+        if end is None:
+            continue
+        chunk = svg[m.end():end]
+        # Mermaid's classDef colours sit inline on the shapes (style="fill:… !important"), which no stylesheet can
+        # override — recolour the shapes of this node in place.
+        blue = "fill:#dbeafe !important;stroke:#2563eb !important;stroke-width:4px !important;stroke-dasharray:0 !important"
+
+        def recolor(tag):
+            t = tag.group(0)
+            m2 = re.search(r'style="([^"]*)"', t)
+            if not m2:
+                return t.replace("<" + tag.group(1), "<" + tag.group(1) + f' style="{blue}"', 1)
+            kept = [d for d in m2.group(1).split(";")
+                    if d.strip() and d.split(":")[0].strip() not in ("fill", "stroke", "stroke-width", "stroke-dasharray")]
+            return t[:m2.start()] + 'style="' + ";".join(kept + [blue]) + '"' + t[m2.end():]
+        # the node's own shape(s): Mermaid marks them label-container / basic / outer-path — never the text backgrounds
+        chunk = re.sub(r'<(rect|polygon|circle|ellipse|path)\b(?=[^>]*\bclass="[^"]*\b(?:label-container|basic|outer-path)\b)[^>]*>',
+                       recolor, chunk)
+        svg = svg[:m.end()] + chunk + svg[end:]
+        end = m.end() + len(chunk)
+        hw, hh = _half_size(chunk)
+        is_rect = bool(re.search(r"<rect\b", chunk)) and not re.search(r"<polygon\b", chunk)
+        tx, ty = (hw - 8, -hh) if is_rect else (hw * 0.55, -hh * 0.6)  # diamonds: on the upper-right edge
+        tag = (f'<g class="ei-now-tag" transform="translate({tx:.1f},{ty:.1f})">'
+               '<rect x="-23" y="-10" width="46" height="20" rx="10" style="fill:#2563eb !important;stroke:#ffffff !important;'
+               'stroke-width:2px !important;stroke-dasharray:0 !important;filter:none !important"/>'
+               '<text x="0" y="4" text-anchor="middle" style="fill:#ffffff !important;stroke:none !important;font-size:11px;'
+               'font-weight:700;letter-spacing:.06em">NOW</text></g>')
+        svg = svg[:end] + tag + svg[end:]
+    return svg
+
+
 def nest(svg, x, y):
     """Place a standalone Mermaid SVG at (x, y) inside the card as a nested <svg>."""
     svg = re.sub(r"^\s*<\?xml[^>]*>\s*", "", svg)
@@ -143,14 +241,14 @@ def pane(d, x, y, width, svg):
     return "".join(out)
 
 
-def card(title, subtitle_lines, legend, body, body_w, body_h, generated):
+def card(title, subtitle_lines, legend, body, body_w, body_h, generated, css=""):
     head_lines = len(subtitle_lines)
     head_h = 34 + 20 * head_lines + (26 if legend else 0) + 12
     W = max(body_w + 2 * PAD, 560)
     H = head_h + body_h + PAD + 22
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W:.0f}" height="{H:.0f}" viewBox="0 0 {W:.0f} {H:.0f}" '
            f'font-family="{FONT}">',
-           f"<style>{DIFF_CSS}</style>",
+           f"<style>{DIFF_CSS}{NOW_CSS}{css}</style>",
            f'<rect width="{W:.0f}" height="{H:.0f}" fill="#ffffff"/>',
            f'<rect width="{W:.0f}" height="4" fill="#4f46e5"/>',
            f'<text x="{PAD}" y="32" font-size="18" font-weight="700" fill="#0f172a">{esc(fit(title, 18, W - 2 * PAD))}</text>']
@@ -161,11 +259,14 @@ def card(title, subtitle_lines, legend, body, body_w, body_h, generated):
     if legend:
         y += 12
         x = PAD
-        for name, stroke, fill, dash in (("added", "#15803d", "#f0fdf4", ""), ("removed", "#b91c1c", "#fef2f2", ' stroke-dasharray="4 2"'),
-                                         ("changed", "#b45309", "#fffbeb", "")):
+        items = [("added", "#15803d", "#f0fdf4", ""), ("removed", "#b91c1c", "#fef2f2", ' stroke-dasharray="4 2"'),
+                 ("changed", "#b45309", "#fffbeb", "")]
+        if legend == "now":
+            items.append(("changed in the latest step (NOW)", NOW, "#dbeafe", ""))
+        for name, stroke, fill, dash in items:
             out.append(f'<rect x="{x}" y="{y}" width="16" height="12" rx="3" fill="{fill}" stroke="{stroke}" stroke-width="2"{dash}/>'
                        f'<text x="{x + 22}" y="{y + 10}" font-size="11.5" fill="#475569">{name}</text>')
-            x += 90
+            x += 90 if len(name) < 10 else int(text_w(name, 11.5)) + 40
         y += 14
     out.append(f'<line x1="{PAD}" x2="{W - PAD:.0f}" y1="{head_h - 4}" y2="{head_h - 4}" stroke="#e2e8f0"/>')
     out.append(body.replace("__BODY_Y__", str(head_h)) if "__BODY_Y__" in body else body)
@@ -193,6 +294,11 @@ def compare_card(name, left_id, right_id, diagrams, diff, generated):
                 kind, diff["changed_nodes"], edges("changed_edges"), "ei-changed")
     rsvg = mark(mark(r["svg"], kind, diff["added_nodes"], edges("added_edges"), "ei-added"),
                 kind, diff["changed_nodes"], edges("changed_edges"), "ei-changed")
+    live = r.get("live") or {}
+    now = live.get("now") or {}
+    if now:
+        rsvg = mark(rsvg, kind, now.get("nodes", []), [tuple(e.split("→", 1)) for e in now.get("edges", [])], "ei-now")
+        rsvg = now_tags(rsvg, kind, now.get("nodes", []))
     lw, lh = svg_size(l["svg"])
     rw, rh = svg_size(r["svg"])
     lw, rw = max(lw, 300), max(rw, 300)
@@ -206,6 +312,16 @@ def compare_card(name, left_id, right_id, diagrams, diff, generated):
     snap = (r.get("meta") or {}).get("snapshot") or right_id.split("-", 1)[0]
     lsnap = (l.get("meta") or {}).get("snapshot") or left_id.split("-", 1)[0]
     lines.append((f"{BADGE.get(lsnap, (lsnap.upper(),))[0]}  →  {BADGE.get(snap, (snap.upper(),))[0]}", "#334155"))
+    if snap == "live" and live:
+        status = (r.get("meta") or {}).get("status")
+        lines.append((fit(f"Step {live.get('step', 0)}" + (f" · Now: {status}" if status else ""), 12.5, width), NOW))
+        if now.get("summary"):
+            lines.append((fit("● Just changed: " + now["summary"], 12.5, width), NOW))
+        elif live.get("step", 0) == 0:
+            lines.append(("● Nothing changed yet — LIVE is still a copy of BEFORE", NOW))
+        for h in (live.get("history") or [])[:HISTORY_KEEP]:
+            lines.append((fit(f"   Step {h['step']}" + (f" ({h['status']})" if h.get("status") else "") + f" — {h['summary']}",
+                              12, width), "#64748b"))
     for key, sign, color, g in (("added_nodes", "+ Added", "#15803d", rg), ("removed_nodes", "− Removed", "#b91c1c", lg),
                                 ("changed_nodes", "~ Changed", "#b45309", rg)):
         if diff[key]:
@@ -217,13 +333,60 @@ def compare_card(name, left_id, right_id, diagrams, diff, generated):
         lines.append(("No structural differences between the two diagrams.", "#475569"))
     title = re.sub(r"\s*[—-]\s*(BEFORE|AFTER|LIVE|PROPOSED)\b.*$", "", l.get("title") or name, flags=re.I) or name
 
-    _, head_h = card(title, lines, True, "", body_w, body_h, generated)
+    legend = "now" if snap == "live" else True
+    _, head_h = card(title, lines, legend, "", body_w, body_h, generated)
     y0 = head_h + 10
     body = pane(l, PAD, y0, lw, lsvg) + pane(r, PAD + lw + GAP, y0, rw, rsvg)
     body += (f'<line x1="{PAD + lw + GAP / 2:.0f}" x2="{PAD + lw + GAP / 2:.0f}" y1="{y0}" y2="{y0 + body_h:.0f}" '
              'stroke="#e2e8f0" stroke-dasharray="4 4"/>')
-    svg, _ = card(title, lines, True, body, body_w, body_h + 10, generated)
+    svg, _ = card(title, lines, legend, body, body_w, body_h + 10, generated, css=scoped_css([lsvg, rsvg]))
     return svg
+
+
+def _describe(diff, prev, cur):
+    parts = []
+    for key, verb, g in (("added_nodes", "added", cur), ("changed_nodes", "changed", cur), ("removed_nodes", "removed", prev)):
+        if diff[key]:
+            parts.append(f"{verb} " + ", ".join(label_of(g, n) for n in diff[key]))
+    edges = sum(len(diff[k]) for k in ("added_edges", "removed_edges", "changed_edges"))
+    if edges:
+        parts.append(f"{edges} connection{'s' if edges != 1 else ''}")
+    return "; ".join(parts)
+
+
+def update_live_history(folder, diagrams, stamp):
+    """Track each LIVE diagram step by step: compare it with its previous render (not with BEFORE) and attach
+    {step, now, history} to the diagram for the compare tab. History lives in the session folder
+    (live-<name>.history.json), never in the project; live_diagram.py start / finish delete it."""
+    import json
+    folder = pathlib.Path(folder)
+    for did, d in diagrams.items():
+        if not did.startswith("live-") or not d.get("graph") or d.get("lint", {}).get("errors"):
+            continue
+        hp = folder / f"{did}.history.json"
+        try:
+            h = json.loads(hp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            h = {"steps": [], "last_graph": None}
+        status = (d.get("meta") or {}).get("status")
+        if h["last_graph"] is None:
+            h["steps"].append({"step": 0, "at": stamp, "status": status, "summary": "copied from BEFORE",
+                               "nodes": [], "edges": []})
+        else:
+            diff = L.graph_diff(h["last_graph"], d["graph"])
+            nodes = diff["added_nodes"] + diff["changed_nodes"]
+            edges = diff["added_edges"] + diff["changed_edges"]
+            if nodes or edges or diff["removed_nodes"] or diff["removed_edges"]:
+                # the change was made under the status shown before this render (what Claude said it was doing)
+                h["steps"].append({"step": h["steps"][-1]["step"] + 1, "at": stamp, "status": h.get("last_status"),
+                                   "summary": _describe(diff, h["last_graph"], d["graph"]), "nodes": nodes, "edges": edges})
+        h["last_graph"] = d["graph"]
+        h["last_status"] = status
+        hp.write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding="utf-8")
+        last = h["steps"][-1]
+        d["live"] = {"step": last["step"],
+                     "now": {"nodes": last["nodes"], "edges": last["edges"], "summary": last["summary"]} if last["step"] else {},
+                     "history": [x for x in reversed(h["steps"][:-1]) if x["step"]]}
 
 
 def write_tabs(out_dir, diagrams, pairs, generated):

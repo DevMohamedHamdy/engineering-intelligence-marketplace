@@ -272,41 +272,24 @@ def open_tabs(tabs, info):
             "stderr": err[:300] or None}
 
 
-def view(files, project, interactive=False):
-    """Show the diagrams inside the editor. Default: every compare-*.svg (BEFORE | AFTER side by side, differences
-    highlighted) and diagram-*.svg as ordinary image tabs — no setting, browser, or server needed. Pass a diagram
-    folder or its diagrams.html. --interactive instead opens the HTML viewer (Simple Browser tab, else browser)."""
-    if not interactive and len(files) == 1 and not re.match(r"^[a-z]+://", files[0]):
-        tabs = tab_files(files[0])
-        if tabs:
-            res = open_tabs(tabs, detect(project))
-            if res:
-                print(json.dumps(res, indent=2)); return 0 if res["status"] == "opened" else 1
-    if len(files) == 1 and pathlib.Path(files[0]).is_dir():
-        d = pathlib.Path(files[0])
-        files = [str(next((p for p in (d / "diagrams.html", d / "diagrams" / "index.html") if p.is_file()), d))]
-    f, why = viewer_file(files)
-    if not f:
-        print(json.dumps({"status": "refused", "reason": why})); return 2
-    info = detect(project)
-    if info.get("family") == "vscode" and info.get("cli"):
-        port = ensure_server(f.parent)
-        if port:
-            url = f"http://127.0.0.1:{port}/{f.name}"
-            rc, out, err = sh([info["cli"], "--open-url", url])
-            if rc == 0:
-                print(json.dumps({"status": "opened", "where": f"{info.get('editor')} (Simple Browser tab)", "url": url,
-                                  "auto_reload": True,
-                                  "note": "If the editor asks how to open the link, choose Simple Browser; to stop the question, add "
-                                          "\"workbench.externalUriOpeners\": {\"127.0.0.1:*\": \"simpleBrowser.open\"} to its user settings."},
-                                 indent=2))
-                return 0
-    cmd = (["open", str(f)] if sys.platform == "darwin" else ["cmd", "/c", "start", "", str(f)] if os.name == "nt"
-           else ["xdg-open", str(f)])
-    rc, out, err = sh(cmd)
-    print(json.dumps({"status": "opened" if rc == 0 else "failed", "where": "default browser", "url": f.as_uri(),
-                      "command": cmd, "stderr": err[:300] or None}, indent=2))
-    return 0 if rc == 0 else 1
+def view(files, project):
+    """Show the diagrams inside the editor, and only there: every compare-*.svg (BEFORE | LIVE/AFTER side by side,
+    differences highlighted) and diagram-*.svg as ordinary image tabs. Never a browser, never an HTML page or a URL —
+    if the editor can't open image tabs, nothing is opened and the reason is returned."""
+    if len(files) != 1 or re.match(r"^[a-z]+://", files[0]):
+        print(json.dumps({"status": "refused", "reason": "one local diagram folder expected; URLs and HTML are never opened"}))
+        return 2
+    tabs = tab_files(files[0])
+    if not tabs:
+        print(json.dumps({"status": "error", "reason": "no compare-*.svg / diagram-*.svg in the folder — render first"}))
+        return 2
+    res = open_tabs(tabs, detect(project))
+    if not res:
+        print(json.dumps({"status": "not_opened", "reason": "the detected editor has no command-line way to open image tabs; "
+                          "nothing was opened outside the editor", "tabs": tabs}, indent=2))
+        return 1
+    print(json.dumps(res, indent=2))
+    return 0 if res["status"] == "opened" else 1
 
 
 def goto_or_diff(a, info):
@@ -349,10 +332,9 @@ def main():
     ap.add_argument("files", nargs="*")
     ap.add_argument("--project")
     ap.add_argument("--tmp", help="diff: scratch directory for the HEAD copy (never inside the project)")
-    ap.add_argument("--interactive", action="store_true", help="view: open the HTML viewer instead of editor image tabs")
     a = ap.parse_intermixed_args()
     if a.action == "view":
-        return view(a.files, a.project, a.interactive)
+        return view(a.files, a.project)
     if a.action == "serve":
         return serve(a.files[0])
     info = detect(a.project)

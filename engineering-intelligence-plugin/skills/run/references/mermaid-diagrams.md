@@ -38,7 +38,7 @@ The validator warns above ~30 nodes / 45 edges / 8 sequence participants and **r
 ```
 %% @title    Place order — business flow
 %% @summary  From tapping "Place order" to the confirmation screen, including payment failures.
-%% @snapshot before                      (before | proposed | live | after | current — only when it applies)
+%% @snapshot before                      (before | live | after | current — only when it applies)
 %% @status   (live only) what is being changed right now — shown under the comparison header
 %% @node S3  src/hooks/useCheckoutHandlers.ts:120-168 | Validates cart and address
 %% @node S6  src/services/payment.ts:44 | Card charge through the payment SDK
@@ -51,7 +51,7 @@ flowchart TD
   S7 -.->|"declined"| S9
 ```
 
-- **Ids:** stable and meaningful (`S7`, `API`, `F_CART`), reused across BEFORE / PROPOSED / AFTER for the same thing — the comparison diffs by id. Never auto-generated.
+- **Ids:** stable and meaningful (`S7`, `API`, `F_CART`), reused across BEFORE / LIVE / AFTER for the same thing — the comparison diffs by id. Never auto-generated.
 - **Labels:** always quoted, 2–6 words, ≤ ~40 characters; details go in `@node … | description`, which the viewer shows on click. Use `'` instead of `"`; `<br/>` only to break a long name. Every node used in an edge must be defined once with a label.
 - **Layout:** `LR` for structures and pipelines, `TD` for step flows with decisions. Group with `subgraph ID["Label"]` (≤ 3 levels). Declare nodes grouped by subgraph, edges afterwards, in reading order — it reduces crossings.
 - **Edges:** label the ones that carry meaning (condition, data, protocol, trigger); leave obvious ones unlabelled. `-->` normal, `-.->` error / fallback / async, `==>` the critical path (sparingly). Every decision has ≥ 2 labelled outcomes.
@@ -66,7 +66,7 @@ flowchart TD
   | `critical` | the step the analysis is about (≤ 3 per diagram) |
   | `error` | failure / fallback outcomes |
   | `partial` · `inferred` · `unknown` | evidence weaker than VERIFIED (VERIFIED needs no class) |
-  | `added` · `removed` · `changed` | a PROPOSED diagram's intended changes |
+  | `added` · `changed` | LIVE: steps added / altered so far |
 
   Most nodes stay neutral. Don't add your own colours, `style` lines, or `click` callbacks (scripts are rejected).
 - **Sequence:** declare every participant (`participant API as API client`); no `#` in message text.

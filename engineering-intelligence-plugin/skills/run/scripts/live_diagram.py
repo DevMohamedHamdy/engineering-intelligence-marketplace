@@ -15,9 +15,31 @@ finish  turns live-<name>.mmd into after-<name>.mmd (@snapshot after, title LIVE
 Every action re-renders the folder (render_workspace.py) so an open viewer tab refreshes by itself; pass
 --project <root> to keep AFTER source links and hashes checked. Prints one JSON object.
 """
-import argparse, json, os, pathlib, re, subprocess, sys
+import tempfile, hashlib, argparse, json, os, pathlib, re, subprocess, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
+REGISTRY = pathlib.Path(tempfile.gettempdir()) / "ei-live"  # read by hooks/live_reminder.py (per-edit reminder)
+
+
+def register(project, name, folder, on):
+    """Record (or clear) an active LIVE diagram for the project, outside the project, so the edit hook can find it."""
+    if not project:
+        return
+    root = pathlib.Path(project).resolve()
+    reg = REGISTRY / (hashlib.sha1(str(root).encode()).hexdigest()[:12] + ".json")
+    try:
+        data = json.loads(reg.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {"project": str(root), "live": {}}
+    if on:
+        data["live"][name] = {"folder": str(folder)}
+    else:
+        data["live"].pop(name, None)
+    if data["live"]:
+        REGISTRY.mkdir(exist_ok=True)
+        reg.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    else:
+        reg.unlink(missing_ok=True)
 
 
 def set_meta(src, key, value):
@@ -38,8 +60,10 @@ def retitle(src, old, new):
     return src[:m.start(1)] + t2 + src[m.end(1):]
 
 
-def render(folder, project):
+def render(folder, project, quick=False):
     cmd = [sys.executable, "-I", str(HERE / "render_workspace.py"), str(folder), "--tmp", str(folder / ".render")]
+    if quick:
+        cmd.append("--no-screenshot")  # per-edit LIVE updates: skip the layout screenshot
     if project:
         cmd += ["--project", project]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -92,7 +116,10 @@ def main():
         after.write_text(src, encoding="utf-8")
         live.unlink()
         out["after"] = str(after)
-    out["render"] = None if a.no_render else render(folder, a.project)
+    register(a.project, a.name, folder, a.action != "finish")
+    if a.action in ("start", "finish"):  # a new LIVE round starts at step 0; AFTER has no "latest step"
+        (folder / f"live-{a.name}.history.json").unlink(missing_ok=True)
+    out["render"] = None if a.no_render else render(folder, a.project, quick=a.action == "status")
     out["status"] = "ok" if a.no_render or out["render"].get("status") == "ok" else "error"
     print(json.dumps(out, indent=2))
     return 0 if out["status"] == "ok" else 1

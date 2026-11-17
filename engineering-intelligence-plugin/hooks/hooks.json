@@ -1,0 +1,17 @@
+{
+  "description": "EI LIVE diagram: after every code edit while a LIVE diagram is active, remind Claude to draw that edit into it before the next one",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/live_reminder.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

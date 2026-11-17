@@ -320,6 +320,7 @@ def main():
     ap.add_argument("--browser")
     ap.add_argument("--mermaid-js", default=MERMAID_DEFAULT)
     ap.add_argument("--check-only", action="store_true")
+    ap.add_argument("--no-screenshot", action="store_true", help="skip the viewer layout screenshot (quick LIVE updates)")
     ap.add_argument("--timeout", type=int, default=90)
     a = ap.parse_args()
 
@@ -404,6 +405,8 @@ def main():
         for name, (l, r) in pairs.items():
             viewer_pairs[name] = (l, r, L.graph_diff(diagrams[l]["graph"], diagrams[r]["graph"]))
         stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if folder_mode:
+            T.update_live_history(ws, diagrams, stamp)
         tabs = T.write_tabs(out_dir, diagrams, viewer_pairs, stamp)
         res["editor_tabs"] = [str(t) for t in tabs]
         project = pathlib.Path(a.project).resolve() if a.project else None
@@ -414,12 +417,13 @@ def main():
         res.update(html=str(page), images=written, render_errors=errors,
                    corrected={did: d["lint"]["fixes"] for did, d in diagrams.items() if d["lint"]["fixes"]})
         shot = tmp / f"{ws.name}-viewer-check.png"
-        try:
-            shot.unlink(missing_ok=True)
-            subprocess.run([browser, *base, "--hide-scrollbars", "--window-size=1400,%d" % min(16000, 400 + 760 * len(diagrams)),
-                            f"--screenshot={shot}", page.as_uri()], capture_output=True, timeout=a.timeout)
-        except subprocess.TimeoutExpired:
-            pass
+        shot.unlink(missing_ok=True)
+        if not a.no_screenshot:
+            try:
+                subprocess.run([browser, *base, "--hide-scrollbars", "--window-size=1400,%d" % min(16000, 400 + 760 * len(diagrams)),
+                                f"--screenshot={shot}", page.as_uri()], capture_output=True, timeout=a.timeout)
+            except subprocess.TimeoutExpired:
+                pass
         res["viewer_check_screenshot"] = str(shot) if shot.is_file() else None
     else:
         res["render_errors"] = errors
