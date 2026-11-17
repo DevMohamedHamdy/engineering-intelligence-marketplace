@@ -111,6 +111,51 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(B.measure_text("// if (x) { }\nconst s = 'if && ||';\n", "a.js")["cc_max"], 1, "comments/strings ignored")
 
 
+    def test_typescript_functions(self):
+        src = """import React, {useCallback, forwardRef} from 'react';
+type Props = { onPress: () => void; title?: string };
+interface Api { run(a: number): void; cb: (a: string) => number }
+export const Card: React.FC<Props> = ({ onPress, title }) => {
+  const label = title ? title : 'x';
+  const handle = useCallback(() => {
+    if (onPress) onPress();
+  }, [onPress]);
+  return <View onPress={handle}>{label}</View>;
+};
+const sum = (a: number, b: number): number => a + b;
+const Big = ({
+  a,
+  b,
+}: Props): JSX.Element => {
+  if (a && b) { return null; }
+  return <Text />;
+};
+export default function Screen<T>(p: T): { ok: boolean } {
+  return { ok: true };
+}
+class Store {
+  private async load(id: string): Promise<void> {
+    while (true) { break; }
+  }
+}
+const Memo = React.memo((p: Props) => <Text>{p.title}</Text>);
+const Fwd = forwardRef<View, Props>((props, ref) => {
+  return null;
+});
+const g = async <T,>(v: T) => v;
+const notFn = compute(a, b);
+if (notFn) { run(); }
+"""
+        lines = src.splitlines()
+        got = {lines[a].strip().split("(")[0].split("=")[0].split(":")[0].strip(): (a + 1, b + 1) for a, b in B.functions_js(lines)}
+        self.assertEqual(got, {
+            "export const Card": (4, 10), "const handle": (6, 8), "const sum": (11, 11), "const Big": (12, 18),
+            "export default function Screen<T>": (19, 21), "private async load": (23, 25), "const Memo": (27, 27),
+            "const Fwd": (28, 30), "const g": (31, 31)})
+        m = B.measure_text(src, "a.tsx")
+        self.assertEqual(m["functions"], 9)
+        self.assertEqual(m["cc_max"], 3, "Big: if + && — Card's ternary (2) excludes its nested callback's if")
+
 class ScenarioTest(unittest.TestCase):
     def setUp(self):
         self.r = Repo(BASE)

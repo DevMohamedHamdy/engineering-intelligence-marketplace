@@ -246,11 +246,45 @@ def serve(folder):
     return 0
 
 
-def view(files, project):
-    """Open the generated diagram viewer. VS Code-family editors (Trae, VS Code, Cursor, ...): inside the IDE —
-    served from 127.0.0.1 and opened with `<cli> --open-url`, which the built-in Simple Browser handles; the page
-    then reloads itself whenever the diagrams are re-rendered. Otherwise: the default browser, as a file:// page.
-    Refuses URLs and any other HTML."""
+def tab_files(target):
+    """The editor-tab SVGs in a diagram folder (compare views first), or None if `target` isn't one."""
+    t = pathlib.Path(target).resolve()
+    folder = t if t.is_dir() else t.parent if t.name in ("diagrams.html", "index.html") else None
+    if folder is None:
+        return None
+    if (folder / "diagrams").is_dir() and not list(folder.glob("compare-*.svg")) + list(folder.glob("diagram-*.svg")):
+        folder = folder / "diagrams"
+    tabs = sorted(folder.glob("compare-*.svg")) + sorted(folder.glob("diagram-*.svg"))
+    return [str(p) for p in tabs]
+
+
+def open_tabs(tabs, info):
+    """Open SVG files as image tabs in the detected editor (built-in image preview: zoom, redraws on change)."""
+    if info.get("family") == "vscode" and info.get("cli"):
+        cmd = [info["cli"], "-r", *tabs]
+    elif info.get("family") == "jetbrains" and sys.platform == "darwin":
+        cmd = ["open", "-a", info["install"], *tabs]
+    else:
+        return None
+    rc, out, err = sh(cmd, timeout=30)
+    return {"status": "opened" if rc == 0 else "failed", "where": f"{info.get('editor')} image tabs", "tabs": tabs,
+            "auto_refresh": "the editor redraws an open image tab when its file changes (live → after included)",
+            "stderr": err[:300] or None}
+
+
+def view(files, project, interactive=False):
+    """Show the diagrams inside the editor. Default: every compare-*.svg (BEFORE | AFTER side by side, differences
+    highlighted) and diagram-*.svg as ordinary image tabs — no setting, browser, or server needed. Pass a diagram
+    folder or its diagrams.html. --interactive instead opens the HTML viewer (Simple Browser tab, else browser)."""
+    if not interactive and len(files) == 1 and not re.match(r"^[a-z]+://", files[0]):
+        tabs = tab_files(files[0])
+        if tabs:
+            res = open_tabs(tabs, detect(project))
+            if res:
+                print(json.dumps(res, indent=2)); return 0 if res["status"] == "opened" else 1
+    if len(files) == 1 and pathlib.Path(files[0]).is_dir():
+        d = pathlib.Path(files[0])
+        files = [str(next((p for p in (d / "diagrams.html", d / "diagrams" / "index.html") if p.is_file()), d))]
     f, why = viewer_file(files)
     if not f:
         print(json.dumps({"status": "refused", "reason": why})); return 2
@@ -315,9 +349,10 @@ def main():
     ap.add_argument("files", nargs="*")
     ap.add_argument("--project")
     ap.add_argument("--tmp", help="diff: scratch directory for the HEAD copy (never inside the project)")
+    ap.add_argument("--interactive", action="store_true", help="view: open the HTML viewer instead of editor image tabs")
     a = ap.parse_intermixed_args()
     if a.action == "view":
-        return view(a.files, a.project)
+        return view(a.files, a.project, a.interactive)
     if a.action == "serve":
         return serve(a.files[0])
     info = detect(a.project)

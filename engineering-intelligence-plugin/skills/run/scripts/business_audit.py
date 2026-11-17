@@ -30,7 +30,7 @@ Classification rules enforced by `finding`:
   ADDED                  needs a pre-approved decision to count as expected; otherwise flagged for review.
   UNKNOWN                needs `limitations`.
 """
-import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile
+import fnmatch, argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir from sys.path
 import evidence_ledger as EL  # noqa: E402  — the single evidence store (evidence.json next to audit.json)
@@ -371,6 +371,35 @@ def parse_diff(text):
     return files
 
 
+# Files whose changes are produced by tools (package managers, IDE project files, build output), not business logic.
+# Their hunks are listed separately and never count as "changes outside every rule". A rule whose source points into
+# one of them still maps normally. --include-generated (or --generated-pattern for project-specific extras) overrides.
+GENERATED_PATTERNS = (
+    # dependency lockfiles
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock", "Podfile.lock",
+    "Gemfile.lock", "Cartfile.resolved", "Package.resolved", "Cargo.lock", "poetry.lock", "Pipfile.lock", "uv.lock",
+    "composer.lock", "go.sum", "gradle.lockfile", "packages.lock.json", "pubspec.lock", "mix.lock", "flake.lock",
+    # IDE / platform project files (Xcode, Visual Studio)
+    "*.pbxproj", "*.xcworkspacedata", "*.xcscheme", "*.xcsettings", "*.sln",
+    # generated output and vendored dependencies
+    "*.min.js", "*.min.css", "*.map", "Pods/*", "node_modules/*", "vendor/*", "dist/*", "build/*",
+)
+
+
+def generated_reason(path, extra=()):
+    """The pattern that marks `path` as tool-generated, or None."""
+    name = path.rsplit("/", 1)[-1]
+    for pat in (*GENERATED_PATTERNS, *extra):
+        if "/" in pat:
+            prefix = pat[:-2] if pat.endswith("/*") else None
+            if (prefix and (path.startswith(prefix + "/") or f"/{prefix}/" in f"/{path}")) or \
+                    (not prefix and fnmatch.fnmatch(path, pat)):
+                return pat
+        elif fnmatch.fnmatch(name, pat):
+            return pat
+    return None
+
+
 def hunk_span(h):
     """Original-side lines a hunk touches. A pure insertion (old_len 0) sits between old_start and old_start+1, so it
     touches both neighbours — code inserted at the edge of a rule's range counts as changing that rule."""
@@ -423,8 +452,13 @@ def cmd_diff(a):
             rr = ref_range(s)
             if rr:
                 mapped_ranges.append(rr)
+    extra = tuple(getattr(a, "generated_pattern", None) or ())
+    generated = {} if getattr(a, "include_generated", False) else \
+        {k: r for k, f in files.items() if (r := generated_reason(f["new"], extra) or generated_reason(f["old"], extra))}
     unmapped = []
-    for f in files.values():
+    for k, f in files.items():
+        if k in generated:
+            continue
         for h in f["hunks"]:
             h_lo, h_hi = hunk_span(h)
             if not any(p == f["old"] and lo <= h_hi and h_lo <= hi for p, lo, hi in mapped_ranges):
@@ -435,14 +469,20 @@ def cmd_diff(a):
                     "files": [{"path": f["new"], "old_path": f["old"], "status": f["status"],
                                "added": sum(len(h["added"]) for h in f["hunks"]),
                                "removed": sum(len(h["removed"]) for h in f["hunks"]),
-                               "symbols": sorted({h["context"] for h in f["hunks"] if h["context"]})}
-                              for f in files.values()],
+                               "symbols": sorted({h["context"] for h in f["hunks"] if h["context"]}),
+                               **({"generated": generated[k]} if k in generated else {})}
+                              for k, f in files.items()],
                     "direct": direct, "indirect": indirect, "unmapped_hunks": unmapped,
-                    "hunks_total": sum(len(f["hunks"]) for f in files.values())}
+                    "hunks_total": sum(len(f["hunks"]) for k, f in files.items() if k not in generated),
+                    "generated_files": [{"path": k, "pattern": r, "hunks": len(files[k]["hunks"])} for k, r in generated.items()],
+                    "generated_hunks": sum(len(files[k]["hunks"]) for k in generated),
+                    "include_generated": bool(getattr(a, "include_generated", False)),
+                    "generated_extra_patterns": list(extra)}
     log(data, "diff", files=len(files), direct=len(direct), indirect=len(indirect))
     save(a.file, data)
     return emit({"status": "ok", "files": len(files), "directly_affected": sorted(direct), "indirectly_affected": indirect,
                  "unmapped_hunks": len(unmapped),
+                 "generated_files_excluded": sorted(generated),
                  "note": "unmapped hunks are changes no recorded rule covers: review them for new (ADDED) or missed rules"})
 
 
@@ -765,6 +805,9 @@ def cmd_report(a):
               "", f"Changes not covered by any rule: {len(d['unmapped_hunks'])}" +
               ("".join(f"\n- {h['file']} old {h['old']} → new {h['new']} {h['context']!r} (+{h['added']}/-{h['removed']})"
                        for h in d["unmapped_hunks"][:15]))]
+        if d.get("generated_files"):
+            L += ["", f"Tool-generated files excluded from business-change coverage ({d['generated_hunks']} hunk(s); a rule "
+                      "pointing into one still maps): " + ", ".join(f"{g['path']} ({g['pattern']})" for g in d["generated_files"])]
     else:
         L.append("_Diff not mapped._")
     linked = sorted({f["decision"] for f in fs if f.get("decision")})
@@ -871,6 +914,10 @@ def main():
     s = p("evidence"); s.add_argument("--json", required=True)
     s = p("mark", "what"); s.set_defaults()
     s = p("diff"); s.add_argument("--include-untracked", action="store_true")
+    s.add_argument("--include-generated", action="store_true",
+                   help="count lockfile / IDE-project / build-output hunks as business changes too")
+    s.add_argument("--generated-pattern", action="append", default=[], metavar="GLOB",
+                   help="extra project-specific generated file (glob on the file name, or dir/* prefix); repeatable")
     s = p("finding"); s.add_argument("--json", required=True); s.add_argument("--decisions"); s.add_argument("--replace", action="store_true")
     s = p("check"); s.add_argument("--decisions")
     s = p("report"); s.add_argument("--decisions"); s.add_argument("--diagrams"); s.add_argument("--out")

@@ -8,7 +8,7 @@
 2. **Characterize:** write characterization tests for the rules that lack tests (outside the Implementation Scope unless approved — usually a new test file the developer approves at the Plan Gate), then `run --side before --with <test files> --rules …` — the test runs against the base commit in a temporary worktree. A characterization test that fails on the base is wrong: fix the test, not the code.
 3. **Plan Gate:** the rules list (ids, one line each) is part of the plan; intended behavior changes are Decision Records approved here.
 4. **Implementation:** `mark implementation-start` immediately before the first edit; `mark implementation-complete` after the last fix (review loop and verification done).
-5. **After:** `run --side after` with the same commands; `diff` maps the real diff onto rules.
+5. **After:** `run --side after` with the same commands; `diff` maps the real diff onto rules. Tool-generated files (dependency lockfiles such as `Podfile.lock` / `yarn.lock` / `package-lock.json`, Xcode `*.pbxproj`, build output, `Pods/`, `node_modules/`) are listed separately and never count as changes outside every rule; a rule whose source points into one still maps. Add project-specific ones with `--generated-pattern '<glob>'`; `--include-generated` counts everything.
 6. **Independent audit (§4)** → `finding` per affected rule → `check` → `report`.
 
 Never present an audit as final while `check` reports `DRAFT` or a stale diff. Standalone use on an existing diff: `baseline --base <merge-base>`, record rules from the base code, `run --side before/after`, `mark` both (state in the report that marks were set retroactively), then audit — post-hoc approvals still never count as intentional.

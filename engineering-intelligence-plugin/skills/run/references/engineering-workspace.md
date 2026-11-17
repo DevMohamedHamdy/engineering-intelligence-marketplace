@@ -131,7 +131,7 @@ Results:
 
 ## 5. Opening inside the editor
 
-Pages always open in the developer's editor without asking. The diagram viewer opens with `open_in_editor.py view <workspace>/diagrams/index.html` (default browser, local file — it refuses any other HTML or URL). Never open any other web page.
+Pages always open in the developer's editor without asking. Diagrams open with `open_in_editor.py view <workspace>/diagrams` as editor image tabs (`compare-*.svg` side by side, `diagram-*.svg`); `--interactive` opens `diagrams/index.html` instead (local file only — it refuses any other HTML or URL). Never open any other web page.
 
 ### Detect
 ```bash

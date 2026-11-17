@@ -90,6 +90,19 @@ class RenderFixturesTest(unittest.TestCase):
         self.assertEqual(pair["diff"]["added_nodes"], ["R5", "R6"])
         self.assertIn('id="c-rating"', self.html)
 
+    def test_editor_tabs(self):
+        tabs = [pathlib.Path(t).name for t in self.res["editor_tabs"]]
+        self.assertEqual(tabs[0], "compare-rating.svg", "compare views first")
+        singles = {f.stem for f in FIX.glob("*.mmd")} - {"before-rating", "after-rating"}
+        self.assertEqual(set(tabs[1:]), {f"diagram-{s}.svg" for s in singles})
+        svg = (self.folder / "compare-rating.svg").read_text()
+        self.assertEqual(svg.count("<svg"), 3, "one card holding BEFORE and AFTER")
+        self.assertIn('class="ei-added node', svg, "added nodes highlighted on the AFTER side")
+        self.assertNotIn("<script", svg)
+        self.assertNotIn("<foreignObject", svg)
+        ys = re.findall(r'<svg x="[\d.]+" y="([\d.]+)"', svg)
+        self.assertEqual(len(set(ys)), 1, "side by side")
+
     def test_viewer_interactions(self):
         script = r"""
           const arch = document.querySelector('[data-diagram="architecture-small"]');

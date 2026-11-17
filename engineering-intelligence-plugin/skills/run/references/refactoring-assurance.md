@@ -4,7 +4,7 @@
 
 | File | Owner (script) | Holds |
 |------|----------------|-------|
-| `*.mmd`, `*.svg`, `diagrams.html` | `render_workspace.py`, `live_diagram.py` | before / proposed / live / after diagrams |
+| `*.mmd`, `*.svg`, `compare-*.svg`, `diagram-*.svg`, `diagrams.html` | `render_workspace.py`, `live_diagram.py` | before / proposed / live / after diagrams |
 | `decisions.json` | `decision_records.py` | decisions, approvals, outcomes, history |
 | `workflow.json` | `final_report.py plan / approve-plan / step` | the plan (P1…Pn), developer plan approval, execution log |
 | `audit.json` | `business_audit.py` | baseline rules, diff map, findings, marks |
@@ -25,5 +25,5 @@
 
 - **Evidence:** executed results come only from `run` (tool-recorded exit codes); source evidence only from `capture-source` (bytes + content hash at a commit); AI analysis is `ai-analysis` and never PASSED; developer statements are `human-confirmed` only with `--via`. `verify` re-checks integrity and appends INVALID/UNAVAILABLE — nothing is overwritten. `trace <finding>` walks a finding to its rule, code, runs, decision, and diagram nodes.
 - **Assurance** (`assurance.py` docstring has the full method): scores always show numerator/denominator and limitations; unavailable when the denominator is 0; a regression shows business-logic assurance as BLOCKED; changed code outside every recorded rule prevents a "verified" verdict; the verdict is never more positive than the audit's recommendation. Not a probability.
-- **Benchmark:** only deterministic measurements (heuristic, labelled as such); readability / cohesion / architecture / testability / performance are reported unavailable — `annotate` stores an AI opinion labelled AI_ASSESSMENT. No aggregate score. Agent runs (`record-run`) are compared only when baseline, task hash, and evaluation criteria hash match — otherwise "NOT comparable — no ranking".
+- **Benchmark:** only deterministic measurements (heuristic, labelled as such; JS/TS functions include typed arrows such as `React.FC<P>`, multi-line parameter lists, class methods and `memo` / `forwardRef` / `useCallback` callbacks, and each function's complexity excludes the functions nested in it); readability / cohesion / architecture / testability / performance are reported unavailable — `annotate` stores an AI opinion labelled AI_ASSESSMENT. No aggregate score. Agent runs (`record-run`) are compared only when baseline, task hash, and evaluation criteria hash match — otherwise "NOT comparable — no ranking".
 - **Report:** a projection of the records above. Missing records are stated as unavailable; nothing is generated to fill a section. Claims carry [VERIFIED] / [INFERRED] / [HUMAN_CONFIRMED] / [UNKNOWN] from the assurance per-rule status.

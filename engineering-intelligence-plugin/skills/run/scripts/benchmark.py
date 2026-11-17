@@ -24,7 +24,7 @@ Not measured (no deterministic tool): readability, cohesion, architectural consi
 reported as unavailable; `annotate` stores an AI opinion labelled as such, never as a metric. No aggregate score.
 These are heuristics (regex/brace based), not a parser: limitations are printed with every result.
 """
-import argparse, datetime, hashlib, json, os, pathlib, re, subprocess, sys
+import bisect, argparse, datetime, hashlib, json, os, pathlib, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import evidence_ledger as EL  # noqa: E402
@@ -35,8 +35,15 @@ NEUTRAL = {"loc", "functions"}
 CODE_EXT = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".java", ".kt", ".swift", ".go", ".cs", ".rb", ".php"}
 DECISION_JS = re.compile(r"\bif\b|\bfor\b|\bwhile\b|\bcase\b|\bcatch\b|&&|\|\||(?<![?.])\?(?![?.:])")
 DECISION_PY = re.compile(r"\bif\b|\belif\b|\bfor\b|\bwhile\b|\bexcept\b|\band\b|\bor\b|\bcase\b")
-FUNC_JS = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+\w+|^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?"
-                     r"(?:\([^)]*\)|\w+)\s*=>|^\s*(?:async\s+)?(?!if\b|for\b|while\b|switch\b|catch\b)\w+\s*\([^)]*\)\s*\{")
+# JS/TS function headers. Each prefix only locates a candidate; js_body_start() then scans the (possibly multi-line)
+# parameter list, TS type annotations, generics, and return types to confirm it really is a function.
+JS_FUNC_KW = re.compile(r"^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:async\s+)?function\b\s*\*?\s*[\w$]*\s*")
+JS_VAR = re.compile(r"^\s*(?:export\s+(?:default\s+)?)?(?:const|let|var)\s+[\w$]+\s*!?")
+JS_METHOD = re.compile(r"^\s*(?:(?:public|private|protected|static|readonly|override|abstract|async|get|set)\s+)*\*?\s*"
+                       r"(?!(?:if|for|while|switch|catch|return|function|else|do|new|typeof|await|with|yield|super|this)\b)"
+                       r"#?[\w$]+\s*\??\s*")
+JS_WRAPPER = re.compile(r"(?:React\s*\.\s*)?(?:memo|forwardRef|useCallback)\s*")
+CLOSE = {"(": ")", "[": "]", "{": "}", "<": ">"}
 FUNC_PY = re.compile(r"^\s*(?:async\s+)?def\s+\w+")
 IMPORT_JS = re.compile(r"""(?:import\s[^'"]*from\s*|import\s*|require\s*\(\s*)['"]([^'"]+)['"]""")
 IMPORT_PY = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.M)
@@ -63,20 +70,164 @@ def strip_strings(line):
     return re.sub(r"(['\"`])(?:\\.|(?!\1).)*\1", "''", line)
 
 
+def _ws(t, k):
+    while k < len(t) and t[k].isspace():
+        k += 1
+    return k
+
+
+def _balanced(t, k, angle=False):
+    """t[k] opens a group; index just past its matching close (len(t) if unbalanced). `=>` never closes a `<`."""
+    stack = []
+    while k < len(t):
+        c = t[k]
+        if c in "([{" or (angle and c == "<"):
+            stack.append(CLOSE[c])
+        elif c in ")]}" or (angle and c == ">" and t[k - 1] != "="):
+            if not stack or stack[-1] != c:
+                return len(t) if c != ">" else k + 1
+            stack.pop()
+            if not stack:
+                return k + 1
+        k += 1
+    return len(t)
+
+
+def _skip_type(t, k, stop):
+    """Skip a TS type starting at t[k] up to the first top-level token in `stop` ("=", "=>" or "{"); index of it or None."""
+    k = _ws(t, k)
+    if k < len(t) and t[k] == "{":          # object-literal type such as `): { a: number } {`
+        k = _balanced(t, k)
+    depth = 0
+    while k < len(t):
+        c = t[k]
+        if c in "([{<" and not (c == "{" and depth == 0 and "{" in stop):
+            depth += 1
+        elif c in ")]}" or (c == ">" and t[k - 1] != "="):
+            depth -= 1
+            if depth < 0:
+                return None
+        elif depth == 0:
+            if t.startswith("=>", k):
+                if "=>" in stop:
+                    return k
+                k += 2; continue
+            if c == "=" and "=" in stop and t[k + 1:k + 2] not in ("=", ">"):
+                return k
+            if c == "{" and "{" in stop:
+                return k
+            if c in ";\n" and t[k - 1:k] not in "|&:,<(" and not t[k + 1:].lstrip().startswith(("|", "&")):
+                return None
+        k += 1
+    return None
+
+
+def _params_then(t, k, want):
+    """At an optional generic + `(params)`, then an optional `: ReturnType`, expect `want` ("=>" or "{")."""
+    k = _ws(t, k)
+    if t.startswith("<", k):
+        k = _ws(t, _balanced(t, k, angle=True))
+    if not t.startswith("(", k):
+        return None
+    k = _ws(t, _balanced(t, k))
+    if t.startswith(":", k):
+        k = _skip_type(t, k + 1, (want,))
+        if k is None:
+            return None
+    if want == "=>" and t.startswith("=>", k):
+        return k + 2
+    if want == "{" and t.startswith("{", k):
+        return k
+    return None
+
+
+def _rhs_function(t, k, wrapped=False):
+    """Index of the body start if the expression at t[k] is a function (arrow, function expression, or one wrapped in
+    memo / forwardRef / useCallback)."""
+    k = _ws(t, k)
+    if t.startswith("async", k) and not re.match(r"[\w$]", t[k + 5:k + 6]):
+        k = _ws(t, k + 5)
+    m = re.compile(r"function\b\s*\*?\s*[\w$]*").match(t, k)
+    if m:
+        return _params_then(t, m.end(), "{")
+    m = re.compile(r"[\w$]+\s*=>").match(t, k)
+    if m:
+        return m.end()
+    if not wrapped:
+        m = JS_WRAPPER.match(t, k)
+        if m:
+            j = _ws(t, m.end())
+            if t.startswith("<", j):
+                j = _ws(t, _balanced(t, j, angle=True))
+            if t.startswith("(", j):
+                return _rhs_function(t, j + 1, wrapped=True)
+    return _params_then(t, k, "=>")
+
+
+def js_body_start(t, k):
+    """If the line starting at offset k begins a function, the offset where its body (or arrow expression) starts."""
+    line = t[k:t.find("\n", k) if "\n" in t[k:] else len(t)]
+    m = JS_FUNC_KW.match(line)
+    if m:
+        return _params_then(t, k + m.end(), "{")
+    m = JS_VAR.match(line)
+    if m:
+        j = _ws(t, k + m.end())
+        if t.startswith(":", j):
+            j = _skip_type(t, j + 1, ("=",))
+            if j is None:
+                return None
+        if t.startswith("=", j) and not t.startswith("=>", j):
+            return _rhs_function(t, j + 1)
+        return None
+    m = JS_METHOD.match(line)
+    if m and (m.end() < len(line) and line[m.end()] in "(<"):
+        return _params_then(t, k + m.end(), "{")
+    return None
+
+
+def _body_end(t, k):
+    """Offset of the last character of a function body starting at t[k] (block, parenthesised, or expression)."""
+    k = _ws(t, k)
+    if k >= len(t):
+        return len(t) - 1
+    if t[k] in "{(":
+        return _balanced(t, k) - 1
+    depth = 0
+    while k < len(t):
+        c = t[k]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth < 0:
+                return k - 1
+        elif depth == 0 and c in ";,\n":
+            nxt = t[k + 1:].lstrip()
+            if c != "\n" or not nxt[:1] or nxt[:1] not in ".?:+-*/&|=<>":
+                return k
+        k += 1
+    return len(t) - 1
+
+
 def functions_js(lines):
-    """[(start, end)] bodies by brace matching from each function header."""
+    """[(start, end)] line ranges of JS/TS functions: declarations, function expressions, arrow functions (including
+    typed ones such as `const Card: React.FC<Props> = ({ a }) => {` and multi-line parameter lists), class / object
+    methods, and functions wrapped in memo / forwardRef / useCallback."""
+    clean = [strip_strings(l) for l in lines]
+    text = "\n".join(clean)
+    starts, off = [], 0
+    for l in clean:
+        starts.append(off); off += len(l) + 1
     out = []
-    for i, l in enumerate(lines):
-        if FUNC_JS.match(l):
-            depth, started = 0, False
-            for j in range(i, len(lines)):
-                s = strip_strings(lines[j])
-                depth += s.count("{") - s.count("}")
-                started = started or "{" in s or "=>" in s
-                if started and depth <= 0 and ("}" in s or ("=>" in s and "{" not in s)):
-                    out.append((i, j)); break
-            else:
-                out.append((i, len(lines) - 1))
+    for i, l in enumerate(clean):
+        if not l.strip():
+            continue
+        body = js_body_start(text, starts[i])
+        if body is None:
+            continue
+        end = _body_end(text, body)
+        out.append((i, max(i, bisect.bisect_right(starts, end) - 1)))
     return out
 
 
@@ -99,7 +250,14 @@ def measure_text(text, path):
     nonblank = [l for l in lines if l.strip()]
     dec = DECISION_PY if py else DECISION_JS
     fns = functions_py(lines) if py else functions_js(lines)
-    ccs = [1 + sum(len(dec.findall(strip_strings(lines[k]))) for k in range(a, b + 1)) for a, b in fns]
+    # Each line belongs to its innermost function, so a component's complexity excludes the callbacks nested in it.
+    owner = {}
+    for n, (a, b) in enumerate(fns):          # fns is ordered by start line: later (inner) starts overwrite
+        for k in range(a, b + 1):
+            owner[k] = n
+    ccs = [1] * len(fns)
+    for k, n in owner.items():
+        ccs[n] += len(dec.findall(strip_strings(lines[k])))
     if py:
         nest = max([(len(l) - len(l.lstrip())) // 4 for l in nonblank] or [0])
     else:

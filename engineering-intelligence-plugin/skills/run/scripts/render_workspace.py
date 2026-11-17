@@ -38,6 +38,7 @@ import argparse, datetime, hashlib, html, json, os, pathlib, re, shutil, subproc
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir from sys.path
 import diagram_lint as L  # noqa: E402
 import diagram_viewer as V  # noqa: E402
+import diagram_tabs as T  # noqa: E402
 
 MERMAID_DEFAULT = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"
 CANDIDATES = [
@@ -395,13 +396,20 @@ def main():
                 path.write_text(d["svg"], encoding="utf-8"); written.append(str(path.relative_to(ws)))
             elif path.exists():
                 path.unlink()  # never leave a stale image for a diagram that failed now
+        if folder_mode:  # a diagram whose .mmd is gone (e.g. live-* after `live_diagram.py finish`) keeps no image
+            for stale in out_dir.glob("*.svg"):
+                if re.match(r"(before|proposed|live|after|current)-", stale.stem) and stale.stem not in diagrams:
+                    stale.unlink()
         viewer_pairs = {}
         for name, (l, r) in pairs.items():
             viewer_pairs[name] = (l, r, L.graph_diff(diagrams[l]["graph"], diagrams[r]["graph"]))
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tabs = T.write_tabs(out_dir, diagrams, viewer_pairs, stamp)
+        res["editor_tabs"] = [str(t) for t in tabs]
         project = pathlib.Path(a.project).resolve() if a.project else None
         page = out_dir / ("diagrams.html" if folder_mode else "index.html")
         page.write_text(V.build_html(diagrams, viewer_pairs, a.title or f"Engineering diagrams — {ws.name}",
-                                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(project) if project else None),
+                                     stamp, str(project) if project else None),
                         encoding="utf-8")
         res.update(html=str(page), images=written, render_errors=errors,
                    corrected={did: d["lint"]["fixes"] for did, d in diagrams.items() if d["lint"]["fixes"]})

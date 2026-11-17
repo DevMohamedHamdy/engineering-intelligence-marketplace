@@ -288,6 +288,26 @@ class BusinessAuditTest(unittest.TestCase):
         self.assertEqual(res["recommendation"], "INSUFFICIENT_EVIDENCE", res)
         self.assertTrue(any("zero totals" in u for u in res["unverified"]))
 
+    def test_generated_files_are_not_business_changes(self):
+        for rel, body in {"ios/Podfile.lock": "PODS:\n  - React (0.74)\n", "ios/App.xcodeproj/project.pbxproj": "CURRENT_PROJECT_VERSION = 42;\n",
+                          "yarn.lock": "react@^18:\n  version 18.3.1\n", "src/generated/api.gen.ts": "export const x = 1;\n",
+                          "src/extra.js": "module.exports = 1;\n"}.items():
+            f = self.repo / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(body)
+        d = self.ok(self.ba("diff", "--include-untracked"))
+        self.assertEqual(sorted(d["generated_files_excluded"]),
+                         ["ios/App.xcodeproj/project.pbxproj", "ios/Podfile.lock", "yarn.lock"])
+        self.assertEqual(d["unmapped_hunks"], 2, "real source files still count")
+        audit = json.loads(self.audit.read_text())["diff"]
+        self.assertEqual((audit["hunks_total"], audit["generated_hunks"]), (2, 3))
+        self.assertEqual({f["path"]: f.get("generated") for f in audit["files"]}["ios/Podfile.lock"], "Podfile.lock")
+        self.assertIn("Tool-generated files excluded", self.ok(self.ba("report")))
+        d = self.ok(self.ba("diff", "--include-untracked", "--generated-pattern", "*.gen.ts"))
+        self.assertEqual(d["unmapped_hunks"], 1, "project-specific pattern")
+        d = self.ok(self.ba("diff", "--include-untracked", "--include-generated"))
+        self.assertEqual((d["unmapped_hunks"], d["generated_files_excluded"]), (5, []), "override counts everything")
+
     def test_unclassified_affected_rule_and_draft_and_stale_diff(self):
         self.ok(self.ba("mark", "implementation-start"))
         self.change("return 15;", "return 20;")

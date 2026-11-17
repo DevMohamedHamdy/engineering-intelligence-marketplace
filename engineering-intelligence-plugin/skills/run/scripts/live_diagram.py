@@ -47,7 +47,7 @@ def render(folder, project):
         res = json.loads(p.stdout)
     except ValueError:
         return {"status": "error", "reason": (p.stderr or p.stdout)[-300:]}
-    return {k: res.get(k) for k in ("status", "reason", "render_errors", "html", "viewer_check_screenshot") if k in res}
+    return {k: res.get(k) for k in ("status", "reason", "render_errors", "editor_tabs", "html", "viewer_check_screenshot") if k in res}
 
 
 def main():
