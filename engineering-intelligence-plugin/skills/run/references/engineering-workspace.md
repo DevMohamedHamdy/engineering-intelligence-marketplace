@@ -21,6 +21,7 @@ Default: `<target-project-root>/docs/engineering-intelligence/<task-name>/` wher
 | `comparison.md` | Code-changing tasks: BEFORE/AFTER comparison — verdict, BEFORE and AFTER diagrams per flow, step mapping, behavior inventory (§3a) | `templates/workspace/comparison.md` |
 | `sources.md` | Every source file referenced, grouped by layer/component, with links and which pages cite it | — |
 | `diagrams/<id>.svg` | Self-contained rendered image of each diagram (offline, no scripts) | `scripts/render_workspace.py` |
+| `decisions.md` / `decisions.json` | Engineering Decision Records (report + structured data with history) | `scripts/decision_records.py report --out` / copy of the session file |
 | `diagrams/index.html` | Read-only diagram viewer: all diagrams with zoom / fit / pan / full screen, node inspection, BEFORE/AFTER comparison (offline, self-contained) | `scripts/render_workspace.py` |
 
 Task-specific pages go in the same folder: `profile.md` (project-profile), `proposal.md` (architecture-proposal), `review.md` (review-report or engineering-review-report), `behavior-map.md` (large parity inventories; `comparison.md` links it).

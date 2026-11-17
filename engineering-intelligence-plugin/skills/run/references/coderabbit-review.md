@@ -166,7 +166,7 @@ For every major finding — including one Claude judges `FALSE POSITIVE`, `NEEDS
 1. **Explain in chat** (≤ 6 lines per finding): ID, severity (original label), `path:line`, what the problem is in plain words, the concrete failure it causes (input/state → wrong result), Claude's classification with evidence (§4).
 2. **List 2–4 possible solutions**, each with a one-line trade-off (risk, scope, behavior change). Put Claude's recommended one first and say why. If Claude classified it `FALSE POSITIVE`, one option is "Dismiss — false positive" with the refuting evidence.
 3. **Ask** with one `AskUserQuestion` call, one question per finding (≤ 4 per call; more → further calls): "<severity> <title> at <path:line> — how should we fix it?" (header `Major`), one option per solution (recommended first, labelled `(Recommended)`), the diff of each solution in its preview, plus `Defer to follow-up` when there is room. The developer may answer with their own fix via "Other".
-4. Apply exactly the chosen solution (inside the Implementation Scope; a choice that needs more scope → Scope question first), then continue the loop (§5). Record Outcome `FIXED (approved)`, `DISMISSED (developer)`, or `DEFERRED`.
+4. Apply exactly the chosen solution (inside the Implementation Scope; a choice that needs more scope → Scope question first), then continue the loop (§5). Record Outcome `FIXED (approved)`, `DISMISSED (developer)`, or `DEFERRED`. If the chosen solution changes design or business behavior, also record it as a Decision Record (`decision-records.md` §2, `phase: review`): the solutions offered are the alternatives, the developer's answer is the approval.
 
 ### 6.2 Non-major findings — Claude resolves, then reports
 

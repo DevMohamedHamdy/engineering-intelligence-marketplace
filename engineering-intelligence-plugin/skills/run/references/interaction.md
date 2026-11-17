@@ -56,6 +56,7 @@ Always present the full content in chat first, then ask. For the Scope Gate and 
 | Moment | Question (header) | Options |
 |--------|-------------------|---------|
 | Scope Gate (G0) — broad requests only | "Approve this investigation plan for <goal>?" (Scope) | Approve plan (Recommended) · Adjust scope · Cancel |
+| Material decision with ≥ 2 evaluated options (before the plan question; Fix: before editing) | "D-00n <title> — which approach?" (Decision) — one per decision, ≤ 4 per call; details in chat first | the evaluated alternatives, recommended first with its trade-off · "Other" = developer's own approach or constraint (recorded as human input) |
 | Plan Gate (G1+G2) — not for Fix | "Approve the plan for <files/goal>?" (Plan) | Approve (Recommended) · Adjust · Cancel |
 | Bare file name matches several files | "Which <name> do you mean?" (File) | up to 4 matching paths |
 | Several entry points | "Which entry point is the one you mean?" (Entry) | up to 4 candidates with `path:line` |

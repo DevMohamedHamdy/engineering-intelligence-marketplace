@@ -85,6 +85,13 @@ Nothing has been committed or pushed. Committing and pushing are the developer's
 | ID | Severity | Question | Options | Recommendation |
 |----|----------|----------|---------|----------------|
 
+## 7a. Engineering Decision Records
+<!-- Paste the output of: decision_records.py report <session-dir>/decisions.json --project <root> --diagrams <session-dir>
+     (summary counts; Implemented → Approved → Proposed/under review (NOT approved) → Deferred → Rejected → Superseded;
+     each with context, selected option, alternatives and reasons, rationale, trade-offs, assumptions, risks, evidence,
+     developer input, approval history, outcome, history). Method: references/decision-records.md §7. -->
+{{decision records section}}
+
 ## 8. Iterations
 | Unit | Review/fix iterations | Stopped because | Unresolved |
 |------|-----------------------|-----------------|------------|
