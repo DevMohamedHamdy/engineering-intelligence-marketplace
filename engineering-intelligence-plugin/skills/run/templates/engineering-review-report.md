@@ -1,6 +1,6 @@
 # Engineering Review Report — {{SUBJECT}}
 
-> Generated: {{DATE}} · Task: {{Refactor | Feature | Fix | Review}} · Collaboration mode: {{Autonomous | Hybrid | Review & Ask}}
+> Generated: {{DATE}} · Task: {{Refactor | Feature | Fix | Review}} · Collaboration mode: {{Severity-gated | Autonomous | Review & Ask}}
 > Iteration limit: {{n}} per unit
 <!-- Method: references/coderabbit-review.md. Never label a Claude review as CodeRabbit. Remove these comments. -->
 
@@ -62,11 +62,20 @@ Nothing has been committed or pushed. Committing and pushing are the developer's
 | ID | Provider | Original severity | Location | Finding | Snapshot | Classification | Outcome | Evidence |
 |----|----------|-------------------|----------|---------|----------|----------------|---------|----------|
 
-<!-- Classification: VALID | FALSE POSITIVE | NEEDS INVESTIGATION | OUT OF SCOPE. Outcome: FIXED (auto) | FIXED (approved) | REJECTED | DEFERRED | AWAITING DECISION | UNRESOLVED (limit reached) -->
+<!-- Classification: VALID | FALSE POSITIVE | NEEDS INVESTIGATION | OUT OF SCOPE. Outcome: FIXED (auto) | FIXED (approved) | DISMISSED (developer) | LEFT AS-IS (reason) | REJECTED | DEFERRED | AWAITING DECISION | UNRESOLVED (limit reached) -->
 
 ## 5. Accepted and Fixed
 | ID | Fix summary | Mode rule applied (auto / approved) | Verified by (test/check/re-review) |
 |----|-------------|-------------------------------------|------------------------------------|
+
+## 5a. Auto-resolved by Claude (non-major findings)
+<!-- coderabbit-review.md §6.2/§6.5: one row per MEDIUM/LOW/INFORMATIONAL finding Claude handled without asking. -->
+| ID | Severity (original) | Location | Issue | Options considered | Chosen | Why this option | Outcome | Verified by |
+|----|---------------------|----------|-------|--------------------|--------|-----------------|---------|-------------|
+
+## 5b. Major findings decided by the developer
+| ID | Severity (original) | Location | Issue | Solutions offered | Developer's choice | Outcome |
+|----|---------------------|----------|-------|-------------------|--------------------|---------|
 
 ## 6. Rejected
 | ID | Classification | Why rejected (evidence) |

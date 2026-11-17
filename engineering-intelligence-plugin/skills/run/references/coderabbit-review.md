@@ -130,22 +130,63 @@ Per logical unit:
 
 **Limits:** default **3 review/fix iterations per unit**; the developer may change it at the Plan Gate or any time. A finding that persists after an attempted fix is not retried again. At either limit: stop for that unit, report unresolved findings with evidence, ask for direction. Never hide or downgrade an unresolved finding.
 
-## 6. Collaboration modes — what may be fixed without asking
+## 6. Collaboration mode — Severity-gated (default)
 
-| | Autonomous | Hybrid (default) | Review & Ask |
-|--|-----------|------------------|--------------|
-| `VALID` routine in-scope fixes | auto | auto, if in the safe list | ask (batched per checkpoint) |
-| `VALID` non-routine judgement calls (in scope, nothing from always-ask) | auto | ask | ask |
-| Anything on the always-ask list | ask | ask | ask |
-| `NEEDS INVESTIGATION` / `OUT OF SCOPE` | report | report | report |
+The developer's standing rule: **only major issues come to the developer; Claude resolves everything else itself and reports it afterwards.**
 
-**Hybrid safe list:** clear bugs; straightforward logic errors; safe code-quality improvements consistent with project conventions; missing error handling where intended behavior is unambiguous; test gaps fillable without changing scope or architecture.
+### Which findings are "major"
 
-**Always ask, in every mode:** changing business behavior or acceptance criteria; expanding the Implementation Scope; changing public APIs, contracts, or schemas; changing architecture or module boundaries beyond the approved plan; adding or upgrading dependencies; migrations; secrets or credentials; authorization or payment-sensitive changes; applying ambiguous or disputed recommendations.
+| Original CodeRabbit severity | Workflow severity | Handled by |
+|------------------------------|-------------------|------------|
+| `critical`, `major` | `CRITICAL`, `HIGH` | **Developer decides** (§6.1) |
+| missing/unrecognized | `UNKNOWN` | **Developer decides** (never treated as low) |
+| `minor`, `trivial`, `info`, `none` | `MEDIUM`, `LOW`, `INFORMATIONAL` | **Claude resolves** (§6.2) |
 
-**Never, in any mode:** commit, push, create/merge PRs, deploy/release, install, run migrations, modify secrets, invoke `coderabbit:autofix`. Modes govern review fixes only; they never replace or weaken the Plan, Review, or Completion gates.
+Use CodeRabbit's **original** label for this split. Under `CLAUDE FALLBACK`, use the fallback reviewer's severity with the same mapping. Never downgrade a finding to avoid asking.
 
-When asking, batch per checkpoint: summarize the items in chat, then one `AskUserQuestion` call with one question per finding (≤ 4 per call; more → further calls) — severity, title, and location in the question, the proposed diff in the preview, options Apply proposed fix · Skip — not needed · Defer to follow-up (`interaction.md`).
+### 6.1 Major findings — explain, offer solutions, ask, then wait
+
+For every major finding — including one Claude judges `FALSE POSITIVE`, `NEEDS INVESTIGATION`, or `OUT OF SCOPE` — **do not change code for it before the developer answers.** Per checkpoint:
+
+1. **Explain in chat** (≤ 6 lines per finding): ID, severity (original label), `path:line`, what the problem is in plain words, the concrete failure it causes (input/state → wrong result), Claude's classification with evidence (§4).
+2. **List 2–4 possible solutions**, each with a one-line trade-off (risk, scope, behavior change). Put Claude's recommended one first and say why. If Claude classified it `FALSE POSITIVE`, one option is "Dismiss — false positive" with the refuting evidence.
+3. **Ask** with one `AskUserQuestion` call, one question per finding (≤ 4 per call; more → further calls): "<severity> <title> at <path:line> — how should we fix it?" (header `Major`), one option per solution (recommended first, labelled `(Recommended)`), the diff of each solution in its preview, plus `Defer to follow-up` when there is room. The developer may answer with their own fix via "Other".
+4. Apply exactly the chosen solution (inside the Implementation Scope; a choice that needs more scope → Scope question first), then continue the loop (§5). Record Outcome `FIXED (approved)`, `DISMISSED (developer)`, or `DEFERRED`.
+
+### 6.2 Non-major findings — Claude resolves, then reports
+
+For `MEDIUM` / `LOW` / `INFORMATIONAL` findings, Claude acts **without asking** (this replaces the old Hybrid "ask for judgement calls" rule):
+
+1. Validate (§4). `FALSE POSITIVE` → reject with evidence. `NEEDS INVESTIGATION` / `OUT OF SCOPE` → report only, never fix.
+2. For each `VALID` finding, **enumerate the realistic solutions** (usually 2–3: e.g. CodeRabbit's suggestion, an alternative consistent with project conventions, leave as-is with a reason).
+3. **Choose one** using: correctness → preserves approved behavior → smallest in-scope change → matches project conventions → readability. Leaving it as-is is allowed only with a stated reason.
+4. Apply it, run the targeted checks, and keep a **decision record** for the report: finding · options considered · chosen option · why it was chosen over the others · how it was verified.
+
+### 6.3 Always ask — overrides severity
+
+Even for a non-major finding, ask (use the §6.1 format) when the fix would: change business behavior or acceptance criteria; expand the Implementation Scope; change public APIs, contracts, or schemas; change architecture or module boundaries beyond the approved plan; add or upgrade dependencies; involve migrations, secrets, credentials, authorization, or payment-sensitive code; or apply a disputed recommendation where the options differ in behavior.
+
+### 6.4 Never, in any mode
+
+Commit, push, create/merge PRs, deploy/release, install, run migrations, modify secrets, invoke `coderabbit:autofix`. The mode governs review fixes only; it never replaces or weakens the Plan, Review, or Completion gates.
+
+### 6.5 Report of auto-resolved findings
+
+After the review loop (and again at the Review Gate), post in chat an **"Auto-resolved by Claude"** list — one entry per non-major finding:
+
+```
+<ID> <SEVERITY> (<original>) <path:line> — <issue in one line>
+  Options: A) <…>  B) <…>  [C) <…>]
+  Chosen: <letter> — <why this over the others>
+  Outcome: FIXED (auto) | REJECTED (false positive: <evidence>) | LEFT AS-IS (<reason>) · Verified: <check/re-review>
+```
+
+Then list `NEEDS INVESTIGATION` / `OUT OF SCOPE` items in one line each. Fill the same data into `templates/engineering-review-report.md` §5a.
+
+### Other modes (only if the developer asks)
+
+- **Review & Ask:** every `VALID` finding is asked in the §6.1 format.
+- **Autonomous:** Claude resolves major findings too, with the §6.2 decision record — except the §6.3 list, which is always asked.
 
 ## 7. Final pre-push review
 
