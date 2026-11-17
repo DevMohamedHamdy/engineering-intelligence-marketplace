@@ -1,0 +1,9 @@
+%% @title Special characters & long labels
+%% @summary Labels with brackets, ampersands, quotes and a deliberately long description.
+flowchart LR
+  A["getPrice(item) → number"]
+  B["Apply 'promo' & loyalty discount [if eligible]"]
+  C["A very long label that explains far too much about what the node does in detail"]
+  D{"total > 0?"}
+  A --> B --> D
+  D -->|"yes"| C

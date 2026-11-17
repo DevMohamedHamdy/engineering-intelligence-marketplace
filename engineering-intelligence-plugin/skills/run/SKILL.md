@@ -1,6 +1,6 @@
 ---
 name: run
-description: Interactive, technology-agnostic engineering workflow for any codebase (mobile, backend, frontend, DevOps, libraries). Use when the developer wants to refactor existing code, implement a new feature, fix a bug, review an existing implementation, or understand/analyze a project. When the developer names files, works only on those files with a fast path (no project-wide tracing). Shows rendered BEFORE/AFTER Mermaid diagrams as images inside the developer's editor without writing any files into the project; saved Markdown docs only on request. Code-changing tasks add an approval gate, an automatic local CodeRabbit review loop (Claude review fallback), BEFORE/AFTER behavior comparison, and test verification.
+description: Interactive, technology-agnostic engineering workflow for any codebase (mobile, backend, frontend, DevOps, libraries). Use when the developer wants to refactor existing code, implement a new feature, fix a bug, review an existing implementation, or understand/analyze a project. When the developer names files, works only on those files with a fast path (no project-wide tracing). Shows validated BEFORE/AFTER Mermaid diagrams as crisp SVG in a read-only HTML viewer (zoom, pan, node inspection, side-by-side comparison) without writing any files into the project; saved Markdown docs only on request. Code-changing tasks add an approval gate, an automatic local CodeRabbit review loop (Claude review fallback), BEFORE/AFTER behavior comparison, and test verification.
 argument-hint: "[refactor|feature|fix|review|analyze] [target] e.g. 'refactor only src/cart/Cart.tsx' | 'fix checkout total rounding' | 'analyze'"
 ---
 
@@ -162,26 +162,26 @@ Minimal fix; don't add new test files (suggest a regression test as a follow-up)
 Read-only. Load by focus: `references/code-quality-review.md`, `references/implementation-standard.md`, `references/refactoring-review.md` (part A), `references/behavior-comparison.md` (before/after pair), `references/test-regression-analysis.md`. For local changes, CodeRabbit reviews (`--dir` / named files) and Claude validates (`references/coderabbit-review.md` §1–4). Findings in chat by severity with `path:line`, plus the diagrams. Requested fixes become a Fix or Refactor task with its own Plan Gate.
 
 ### 5. Understand / Analyze Project
-Read-only. Load by focus: `references/project-discovery.md`, `references/architecture-analysis.md`, `references/business-logic-tracing.md`, `references/mermaid-diagrams.md`. Answer in chat with the rendered diagrams opened in the editor. Offer to save a Markdown workspace at the end (one question); write it only on yes.
+Read-only. Load by focus: `references/project-discovery.md`, `references/architecture-analysis.md`, `references/business-logic-tracing.md`, `references/mermaid-diagrams.md`. Answer in chat with the rendered diagrams open in the diagram viewer. Offer to save a Markdown workspace at the end (one question); write it only on yes.
 
-## Diagrams (BEFORE / AFTER, shown in the editor, no project files)
+## Diagrams (BEFORE / PROPOSED / AFTER, read-only HTML viewer, no project files)
 
-Per `references/mermaid-diagrams.md`, from code you read — never from names or the plan. Node IDs stable across BEFORE and AFTER. Significant nodes carry evidence classes; each diagram gets a short `Node → path:line` list in chat.
+Per `references/mermaid-diagrams.md`, from code you read — never from names or the plan. Node ids stable across BEFORE, PROPOSED, and AFTER. Every significant node has an `@node` source reference; the viewer shows it on click.
 
-**Where:** a session diagram folder outside the project — the session scratchpad if one exists, else `$TMPDIR/ei-<task>-<subject>/`. One `<id>.mmd` file per diagram: `before-<name>`, `after-<name>`. No delta diagram.
+**Where:** a session diagram folder outside the project — the session scratchpad if one exists, else `$TMPDIR/ei-<task>-<subject>/`. One `<id>.mmd` file per diagram: `before-<name>`, optionally `proposed-<name>` (the plan), `after-<name>`, plus focused views (`overview`, `flow-<x>`) when they help. No delta diagram.
 
-**Render and open:**
+**Validate, render, open:**
 ```bash
-python3 -I <skill-dir>/scripts/render_workspace.py <diagram-dir> --tmp <diagram-dir>/.render --project <root> [--record-after <files...>]
-python3 -I <skill-dir>/scripts/open_in_editor.py open --project <root> <diagram-dir>/<id>.png ...
+python3 -I <skill-dir>/scripts/render_workspace.py <diagram-dir> --tmp <diagram-dir>/.render --project <root> --title "<task>" [--record-after <files...>]
+python3 -I <skill-dir>/scripts/open_in_editor.py view <diagram-dir>/diagrams.html
 ```
-Each diagram opens as **its own image tab** in the developer's editor (rendering is headless and invisible; never a browser, never HTML). Diagrams are never shown through a `.md` file or the Markdown preview — no Markdown file is created for them; only the `.mmd` source and its `.png` (2x, sharp, zoomable) in the session folder. Open only the diagrams the task needs. If rendering or opening fails, say exactly why and show the Mermaid source in chat.
+The script validates every diagram, renders crisp SVG (`<id>.svg`), and writes **`diagrams.html`** — one self-contained, read-only page (no network, no Mermaid source, no editing): each diagram with title, summary, zoom / fit / 100 % / pan / full screen, node inspection (description, source refs, relationships, connected nodes highlighted), a legend, and a source-reference table. `view` opens it in the developer's browser as a local file. Re-open (or reload) after every re-render. Before presenting, read `viewer_check_screenshot` and fix unreadable layouts (`mermaid-diagrams.md` §5). If validation or rendering fails, fix the source and re-run; if it can't run at all, say exactly why and show the Mermaid source in chat. PNG is no longer produced.
 
 **Sequence (always, for code-changing tasks):**
-1. **BEFORE** — from the original code, rendered and opened **before the Plan Gate**. Frozen afterwards.
-2. **AFTER** — drawn **only after the last code change** (after the review loop, its fixes, and verification), by re-reading the final code (prefer a read-only subagent given only the final files, not the BEFORE trace or the plan). Same node IDs where the step still exists. Render with `--record-after <changed files>`: the script stores their hashes, and `stale_after` on any later run means the code changed — redraw.
-3. **Side-by-side** — the renderer also writes `compare-<name>.png` for each BEFORE/AFTER pair: BEFORE on the left, AFTER on the right, in one image. Open `before`, `after`, `compare` as tabs (`compare` last, so the side-by-side view is in front).
-4. **Comparison in chat:** verdict (LOGIC PRESERVED · PRESERVED WITH INTENDED CHANGES · UNEXPLAINED DIFFERENCES), counts, and one table — step · BEFORE `path:line` · AFTER `path:line` · status · intentional? The render result's `before_after_pairs` lists node IDs present on only one side; every one of them must be in the table (MISSING, ADDED, moved, renamed). Method: `references/behavior-comparison.md`.
+1. **BEFORE** — from the original code, rendered and shown **before the Plan Gate**. Frozen afterwards. When the plan changes structure, also draw `proposed-<name>` (marking intended changes with `added` / `removed` / `changed`); the viewer pairs it with BEFORE.
+2. **AFTER** — drawn **only after the last code change** (after the review loop, its fixes, and verification), by re-reading the final code (prefer a read-only subagent given only the final files, not the BEFORE trace or the plan). Same node ids where the step still exists. Render with `--record-after <changed files>`: the script stores their hashes, and `stale_after` on any later run means the code changed — redraw.
+3. **Side-by-side** — for each `before-<name>` / `after-<name>` pair the viewer shows a comparison section at the top: BEFORE left, AFTER right, each with its own zoom/pan, added nodes/edges highlighted green on the AFTER side, removed red on the BEFORE side, changed labels amber, plus a list of every difference.
+4. **Comparison in chat:** verdict (LOGIC PRESERVED · PRESERVED WITH INTENDED CHANGES · UNEXPLAINED DIFFERENCES), counts, and one table — step · BEFORE `path:line` · AFTER `path:line` · status · intentional? The render result's `before_after_pairs.<name>.diff` lists nodes and relationships present on only one side; every node in it must be in the table (MISSING, ADDED, moved, renamed). Method: `references/behavior-comparison.md`.
 
 The Review Gate is not reached while AFTER is stale or any one-sided node is unclassified.
 
@@ -206,7 +206,7 @@ Method: `references/coderabbit-review.md` §2–7.
 
 ## Output
 
-- **Default:** chat + rendered diagrams opened in the editor from the session diagram folder. No files in the project other than the approved code changes.
+- **Default:** chat + the read-only diagram viewer (`diagrams.html`) from the session diagram folder. No files in the project other than the approved code changes.
 - **Saved docs (only on request):** a Markdown workspace at `<project>/docs/engineering-intelligence/<task>-<subject>/` per `references/engineering-workspace.md`, and `templates/engineering-review-report.md` as `review.md` inside it. Offer it once at the end of Analyze, Review, and large tasks; never write it otherwise.
 - **Quick answer:** chat only.
 
@@ -214,7 +214,7 @@ Method: `references/coderabbit-review.md` §2–7.
 
 A task is complete only when:
 1. The agreed scope was covered (anything not examined is listed).
-2. Every diagram rendered without errors and was opened in the editor — or the exact limitation was reported with the Mermaid source in chat.
+2. Every diagram passed validation, rendered without errors, and was shown in the diagram viewer — or the exact limitation was reported with the Mermaid source in chat.
 3. For code-changing tasks: BEFORE and AFTER diagrams exist, AFTER is not stale, every one-sided node is classified, and the comparison verdict is stated.
 4. Important findings and diagram nodes carry evidence tags and source locations.
 5. The change meets `references/implementation-standard.md`, or each exception is stated with its reason.

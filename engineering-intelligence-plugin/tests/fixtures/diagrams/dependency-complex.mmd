@@ -1,0 +1,57 @@
+%% @title Module dependencies — src/
+%% @summary Import graph between feature modules and shared layers (28 modules).
+flowchart TB
+  subgraph FEAT["Features"]
+    F_HOME["home"]
+    F_REST["restaurant"]
+    F_MENU["menu"]
+    F_CART["cart"]
+    F_CHK["checkout"]
+    F_ORD["orders"]
+    F_TRACK["tracking"]
+    F_PROF["profile"]
+    F_AUTH["auth"]
+    F_ADDR["addresses"]
+    F_PROMO["promotions"]
+    F_NOTIF["notifications"]
+  end
+  subgraph SHARED["Shared"]
+    S_UI["ui-kit"]
+    S_HOOKS["hooks"]
+    S_I18N["i18n"]
+    S_THEME["theme"]
+    S_UTILS["utils"]
+    S_NAV["navigation"]
+  end
+  subgraph DATA["Data"]
+    D_API["api"]
+    D_STORE["store"]
+    D_CACHE["cache"]
+    D_MODELS["models"]
+  end
+  subgraph PLATFORM["Platform"]
+    P_MAPS["maps"]:::external
+    P_PUSH["push"]:::external
+    P_PAY["payments"]:::external
+    P_ANALYTICS["analytics"]:::external
+    P_STORAGE["secure-storage"]:::external
+    P_LOC["location"]:::external
+  end
+  F_HOME --> F_REST & F_PROMO & S_UI
+  F_REST --> F_MENU & D_API
+  F_MENU --> F_CART & S_UI
+  F_CART --> D_STORE & F_PROMO
+  F_CHK --> F_CART & F_ADDR & P_PAY & D_API
+  F_ORD --> D_API & F_TRACK
+  F_TRACK --> P_MAPS & P_LOC
+  F_PROF --> F_AUTH & F_ADDR
+  F_AUTH --> P_STORAGE & D_API
+  F_ADDR --> P_LOC & D_API
+  F_NOTIF --> P_PUSH
+  F_PROMO --> D_API
+  S_UI --> S_THEME & S_I18N
+  S_HOOKS --> D_STORE
+  S_NAV --> S_UTILS
+  D_API --> D_MODELS & D_CACHE
+  D_STORE --> D_MODELS
+  D_API --> P_ANALYTICS

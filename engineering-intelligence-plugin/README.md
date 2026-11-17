@@ -47,8 +47,12 @@ skills/run/
   references/           # specialized methods + shared evidence model + coderabbit-review.md
   references/implementation-standard.md  # standard every change follows: simplest solution, current best practice, no deprecated APIs
   references/engineering-workspace.md  # optional saved Markdown workspace; BEFORE/AFTER diagram rules (§3a)
-  scripts/render_workspace.py         # Mermaid (.mmd folder or Markdown) -> PNG images (side-by-side BEFORE/AFTER) + BEFORE/AFTER checks
-  scripts/open_in_editor.py           # detect editor, open workspace files in it (never a browser)
+  scripts/render_workspace.py         # validate Mermaid (.mmd folder or Markdown) -> SVG + read-only HTML viewer (BEFORE/AFTER comparison) + BEFORE/AFTER checks
+  scripts/diagram_lint.py             # diagram validation, controlled auto-correction, graph extraction and diff
+  scripts/diagram_viewer.py           # self-contained viewer page: zoom / fit / pan / full screen / node inspection
+  scripts/watch_review.py             # live CodeRabbit review progress
+  scripts/open_in_editor.py           # detect editor, open files / jump to lines / diff tabs; `view` opens the diagram viewer
+tests/                  # python3 -m unittest discover -s tests (lint + headless render tests, fixtures/diagrams)
   templates/            # report skeletons (incl. engineering-review-report.md, workspace/index.md, workspace/comparison.md)
 ```
 
@@ -58,7 +62,7 @@ skills/run/
 
 **Review is automatic:** CodeRabbit reviews every code change (scoped with `--dir` to the changed files). If it is unavailable or fails, Claude reviews instead, labeled `CLAUDE FALLBACK`. You're never asked which reviewer to use.
 
-**BEFORE / AFTER diagrams, no files in your project:** for Refactor / Feature / Fix, a BEFORE diagram is drawn from the original code before the plan, and AFTER from the final code after all review fixes. They are rendered to sharp PNG images (headless, invisible) in a session temp folder outside the project and opened as image tabs in your editor, including a side-by-side `compare` tab with BEFORE and AFTER in one image (`open_in_editor.py`; verified in Trae, VS Code/Cursor expected). The comparison table and report are in chat. `render_workspace.py --record-after` binds the AFTER diagram to the final file hashes and reports `stale_after` if the code changes later. No browser is ever opened.
+**Diagrams, no files in your project:** every diagram is validated (syntax, labelled nodes, references, escaping, complexity) and rendered headlessly to crisp SVG in a session temp folder outside the project, then shown in one self-contained, read-only HTML viewer (`diagrams.html`, opened locally in your browser): zoom, fit, pan, full screen, click a node to see its description, source files and relationships. For Refactor / Feature / Fix, a BEFORE diagram is drawn from the original code before the plan (optionally a PROPOSED one), and AFTER from the final code after all review fixes; the viewer shows them side by side with added / removed / changed nodes and relationships highlighted. The comparison table and report are in chat. `render_workspace.py --record-after` binds the AFTER diagram to the final file hashes and reports `stale_after` if the code changes later.
 
 **Saved docs only on request:** if you ask, the work is saved as a Markdown workspace at `docs/engineering-intelligence/<task>-<subject>/` (`references/engineering-workspace.md`), navigable in the editor's Markdown Preview.
 

@@ -6,6 +6,7 @@ Usage:
   python3 -I open_in_editor.py open [--project <root>] <file> [<file> ...]
   python3 -I open_in_editor.py goto [--project <root>] <file>:<line>      # jump to a line (review finding)
   python3 -I open_in_editor.py diff [--project <root>] --tmp <dir> <file>  # HEAD ↔ working copy diff tab
+  python3 -I open_in_editor.py view <diagrams.html>                        # read-only diagram viewer, local browser
 
 detect → JSON: editor name, app bundle, family, verified CLI, version, how it was detected,
          whether a Markdown-preview Mermaid extension is installed, and preview instructions.
@@ -147,6 +148,21 @@ def detect(project):
     return {"status": "not_detected", "reason": "no editor found in process ancestry or Claude Code IDE connections"}
 
 
+def view(files):
+    """Open a generated diagram viewer (local .html file named diagrams.html or index.html under a diagrams
+    folder) in the default browser as a file:// page. Refuses URLs and any other HTML."""
+    if len(files) != 1 or re.match(r"^[a-z]+://", files[0]):
+        print(json.dumps({"status": "refused", "reason": "exactly one local viewer file expected"})); return 2
+    f = pathlib.Path(files[0]).resolve()
+    if not f.is_file() or not (f.name == "diagrams.html" or (f.name == "index.html" and f.parent.name == "diagrams")):
+        print(json.dumps({"status": "refused", "reason": "only a generated diagrams.html / diagrams/index.html is opened", "file": str(f)})); return 2
+    cmd = (["open", str(f)] if sys.platform == "darwin" else ["cmd", "/c", "start", "", str(f)] if os.name == "nt"
+           else ["xdg-open", str(f)])
+    rc, out, err = sh(cmd)
+    print(json.dumps({"status": "opened" if rc == 0 else "failed", "url": f.as_uri(), "command": cmd, "stderr": err[:300] or None}, indent=2))
+    return 0 if rc == 0 else 1
+
+
 def goto_or_diff(a, info):
     """Open a source file at a line (goto) or a HEAD-vs-working diff tab (diff). Local files only."""
     if len(a.files) != 1 or re.match(r"^[a-z]+://", a.files[0]):
@@ -183,11 +199,13 @@ def goto_or_diff(a, info):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["detect", "open", "goto", "diff"])
+    ap.add_argument("action", choices=["detect", "open", "goto", "diff", "view"])
     ap.add_argument("files", nargs="*")
     ap.add_argument("--project")
     ap.add_argument("--tmp", help="diff: scratch directory for the HEAD copy (never inside the project)")
     a = ap.parse_intermixed_args()
+    if a.action == "view":
+        return view(a.files)
     info = detect(a.project)
     if a.action == "detect":
         print(json.dumps(info, indent=2)); return 0 if info["status"] == "ok" else 1

@@ -1,0 +1,29 @@
+%% @title App architecture — ordering
+%% @summary How the mobile app's screens reach the ordering API through hooks and the API client.
+%% @snapshot current
+%% @node HOME src/screens/Home/index.tsx:1 | Home screen with restaurant cards
+%% @node CHK src/screens/Checkout/index.tsx:1 | Checkout screen
+%% @node API src/services/api.ts:12 | Axios client with auth interceptor
+%% @node PAY src/services/payment.ts:30 | Payment SDK wrapper
+flowchart LR
+  subgraph UI["Screens"]
+    HOME["Home"]:::entry
+    CHK["Checkout"]:::entry
+  end
+  subgraph LOGIC["Hooks & state"]
+    HK["useCheckoutHandlers"]
+    ST[("Redux store")]:::store
+  end
+  subgraph SVC["Services"]
+    API["API client"]
+    PAY["Payment wrapper"]
+  end
+  BE["Ordering backend"]:::external
+  GW["Payment gateway"]:::external
+  HOME -->|"list restaurants"| API
+  CHK --> HK
+  HK -->|"dispatch"| ST
+  HK -->|"place order"| API
+  HK -->|"charge"| PAY
+  API -->|"HTTPS"| BE
+  PAY -->|"SDK"| GW

@@ -1,0 +1,22 @@
+%% @title Checkout — request sequence
+%% @summary Calls between the checkout screen, its hook, the API client and the backend when an order is placed.
+sequenceDiagram
+  autonumber
+  actor U as Customer
+  participant CHK as Checkout screen
+  participant HK as useCheckoutHandlers
+  participant API as API client
+  participant BE as Ordering backend
+  U->>CHK: Tap Place order
+  CHK->>HK: onPlaceOrder()
+  HK->>API: POST /orders
+  API->>BE: HTTPS request
+  alt payment approved
+    BE-->>API: 201 Created
+    API-->>HK: order
+    HK-->>CHK: navigate to confirmation
+  else payment declined
+    BE-->>API: 402 Payment Required
+    API-->>HK: error
+    HK-->>CHK: show error banner
+  end

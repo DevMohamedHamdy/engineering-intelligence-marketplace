@@ -1,0 +1,26 @@
+%% @title Place order — business flow
+%% @summary From tapping "Place order" to the confirmation screen, including payment failure paths.
+%% @node S1 src/screens/Checkout/index.tsx:1270 | Submit handler
+%% @node S3 src/hooks/useCheckoutHandlers.ts:120 | Validates cart and address
+%% @node S6 src/services/payment.ts:44 | Card charge
+flowchart TD
+  S1(["Tap 'Place order'"]):::entry
+  S2{"Payment methods loaded?"}
+  S3["Validate cart & address"]
+  S4{"Cart valid?"}
+  S5["Show validation errors"]:::error
+  S6["Charge card"]:::critical
+  S7{"Charge succeeded?"}
+  S8["Create order"]
+  S9["Show payment error"]:::error
+  S10(["Order confirmation"])
+  S1 --> S2
+  S2 -->|"no"| S1
+  S2 -->|"yes"| S3
+  S3 --> S4
+  S4 -->|"no"| S5
+  S4 -->|"yes"| S6
+  S6 --> S7
+  S7 -->|"yes"| S8
+  S7 -.->|"no"| S9
+  S8 --> S10

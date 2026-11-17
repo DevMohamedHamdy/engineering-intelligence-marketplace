@@ -2,7 +2,7 @@
 
 **Load when:** the developer asked to save the work as Markdown docs in the project. SKILL.md decides *when*; this file defines *how*.
 
-**Optional, on request only.** By default the workflow writes no files into the project: diagrams are rendered from `.mmd` files in a session folder outside the project to PNG and opened as image tabs, and everything else goes in chat (SKILL.md → *Diagrams*). This saved workspace is for developers who want a persistent, navigable copy. It is explored **entirely inside the editor** — Markdown pages in the native Markdown Preview, diagrams as local SVG images. **Never open an external web browser.**
+**Optional, on request only.** By default the workflow writes no files into the project: diagrams are rendered from `.mmd` files in a session folder outside the project to SVG plus the read-only viewer `diagrams.html`, and everything else goes in chat (SKILL.md → *Diagrams*). This saved workspace is for developers who want a persistent, navigable copy: Markdown pages in the editor's native Markdown Preview with the diagrams as local SVG images, plus `diagrams/index.html` — the same read-only viewer — for zooming, panning, and inspecting nodes. The viewer is the only page opened in the browser, as a local file.
 
 The diagram rules in §3a (BEFORE/AFTER ids, node-ID stability) apply to the default session diagrams too.
 
@@ -21,10 +21,11 @@ Default: `<target-project-root>/docs/engineering-intelligence/<task-name>/` wher
 | `comparison.md` | Code-changing tasks: BEFORE/AFTER comparison — verdict, BEFORE and AFTER diagrams per flow, step mapping, behavior inventory (§3a) | `templates/workspace/comparison.md` |
 | `sources.md` | Every source file referenced, grouped by layer/component, with links and which pages cite it | — |
 | `diagrams/<id>.svg` | Self-contained rendered image of each diagram (offline, no scripts) | `scripts/render_workspace.py` |
+| `diagrams/index.html` | Read-only diagram viewer: all diagrams with zoom / fit / pan / full screen, node inspection, BEFORE/AFTER comparison (offline, self-contained) | `scripts/render_workspace.py` |
 
 Task-specific pages go in the same folder: `profile.md` (project-profile), `proposal.md` (architecture-proposal), `review.md` (review-report or engineering-review-report), `behavior-map.md` (large parity inventories; `comparison.md` links it).
 
-No HTML files are part of the workspace. (The render script uses a temporary HTML harness in the temp directory; it is never shown to the developer.)
+The only HTML file is the generated `diagrams/index.html` viewer (never hand-edited; regenerated on every render). The render script's HTML harness stays in the temp directory.
 
 **Compact mode:** when the whole content is short (roughly < 250 lines), put all sections in `index.md` with anchor links. Split into pages as soon as a section grows large. Never omit a required section — mark it `N/A — <reason>`.
 
@@ -72,6 +73,8 @@ flowchart TD
 |------|--------|----------|
 ````
 
+Put the diagram's `%% @title`, `%% @summary`, `%% @snapshot`, and `%% @node` lines (`mermaid-diagrams.md` §4) at the top of the Mermaid block — the viewer uses them; the table above keeps the references readable in the Markdown preview.
+
 **Native mode (only when detection found a Mermaid preview extension, §5):** the marker followed directly by the visible ```` ```mermaid ```` block, and a link `[SVG](diagrams/flow-overview.svg)` instead of the image — the SVG is still generated for offline use and other viewers.
 
 Ids are unique across the workspace (`[A-Za-z0-9_-]`). To change a diagram, edit its Mermaid block and re-run the render script.
@@ -104,19 +107,19 @@ Run, with a temp directory **outside the project** that was named in the output 
 python3 -I <skill-dir>/scripts/render_workspace.py <workspace-dir> --tmp <session-temp-dir>
 ```
 
-- Collects every marked Mermaid block from the workspace pages; renders them with an installed Chromium-family browser running **headless** (no window, throwaway profile — the developer never sees a browser); writes `diagrams/<id>.svg`.
+- Collects every marked Mermaid block from the workspace pages, **validates** each (`mermaid-diagrams.md` §5), renders them with an installed Chromium-family browser running **headless** (no window, throwaway profile); writes `diagrams/<id>.svg` and the viewer `diagrams/index.html`.
 - SVGs are made standalone: no scripts or external references, plain SVG text labels (no `foreignObject`), fixed intrinsic size, white background so they stay readable in dark editor themes. **Viewing needs no network.**
 - Rendering needs the Mermaid library: by default a pinned jsDelivr URL fetched by the headless renderer at generation time (state this network use in the output plan), or a local copy via `--mermaid-js <path>`.
 - Verifies every `![…](diagrams/*.svg)` reference in the pages resolves to a file.
-- Writes a check image to the temp dir showing every SVG displayed as an image on a dark background — the way an editor preview shows them.
+- Writes a check image of the viewer page to the temp dir (`viewer_check_screenshot`) for visual inspection.
 - Verifies BEFORE/AFTER integrity (§3a): `stale_after`, `broken_after_links`, `unaccounted_nodes`; `before_after_pairs` lists the node IDs present on only one side per pair. Project root: `--project <root>` (default: three levels above the workspace).
 - `--check-only` re-verifies markers, references, and BEFORE/AFTER integrity without rendering (offline) — run it right before G3 and after any late change.
 
 Results:
-- `render_errors` / `source_problems` → fix the Mermaid source in the page and re-run. Never deliver a diagram that failed to render.
+- `render_errors` / `source_problems` / `validation.<id>.errors` → fix the Mermaid source in the page and re-run. Never deliver a diagram that failed to validate or render; a failed diagram's old SVG is deleted, never left stale.
 - `stale_after` / `broken_after_links` → the AFTER pages no longer describe the code: re-trace, redraw, update hashes. `unaccounted_nodes` → classify each listed node in the mapping table (verify by reading both sides).
 - `not_run` → no headless-capable browser or the Mermaid library couldn't load; try `mmdc` if already installed (never install it); else report.
-- On `ok`, **read the check image** and confirm each diagram is visible and legible. Then the SVGs are `RENDERED — VERIFIED`.
+- On `ok`, **read the check image** and confirm each diagram is visible and legible (fix layout per `mermaid-diagrams.md` §5). Then the SVGs are `RENDERED — VERIFIED`.
 
 ### Render status (state exactly one in the walkthrough and in `index.md`)
 | Status | Meaning |
@@ -127,7 +130,7 @@ Results:
 
 ## 5. Opening inside the editor
 
-Diagrams and pages always open in the developer's editor without asking. **Never open a web browser and never open HTML.**
+Pages always open in the developer's editor without asking. The diagram viewer opens with `open_in_editor.py view <workspace>/diagrams/index.html` (default browser, local file — it refuses any other HTML or URL). Never open any other web page.
 
 ### Detect
 ```bash
@@ -139,7 +142,7 @@ Finds the editor hosting this session from the process ancestry (falls back to t
 ```bash
 python3 -I <skill-dir>/scripts/open_in_editor.py open --project <project-root> <workspace>/diagrams/<overview-id>.svg <workspace>/index.md
 ```
-Opens the files as tabs in the editor's current window (VS Code-family: `<cli> -r`); `index.md` last so it is focused. At the Review Gate (G3) open `diagrams/after-<name>.svg` and `comparison.md` instead. The overview SVG opens in the editor's built-in image viewer, so a diagram is visible immediately. The script refuses URLs and HTML.
+Opens the files as tabs in the editor's current window (VS Code-family: `<cli> -r`); `index.md` last so it is focused. At the Review Gate (G3) open `comparison.md` and the viewer (`view diagrams/index.html`, whose comparison section is at the top). `open` refuses URLs and HTML; `view` accepts only a generated diagram viewer.
 
 ### Preview
 Editor CLIs cannot open the Markdown Preview, and no other non-invasive automation exists (keyboard automation needs OS accessibility permission and is not used). Tell the developer exactly: **"In the `index.md` tab press Cmd+Shift+V (Ctrl+Shift+V), or Cmd/Ctrl+K V for side-by-side."** Then everything — diagrams, page links, source links — works inside the preview.

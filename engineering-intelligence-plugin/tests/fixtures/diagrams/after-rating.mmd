@@ -1,0 +1,12 @@
+%% @title Rating display — AFTER
+%% @snapshot after
+%% @node R1 src/components/RestaurantCard.tsx:40 | Renders the rating row
+%% @node R5 src/utils/formatRating.ts:3 | Locale-aware rating formatter
+flowchart LR
+  R1["RestaurantCard"]:::entry
+  R2["rating prop"]
+  R5["formatRating()"]
+  R4["Rating text + star"]
+  R6["Delivery fee"]
+  R1 --> R2 --> R5 --> R4
+  R1 --> R6

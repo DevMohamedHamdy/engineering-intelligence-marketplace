@@ -1,0 +1,15 @@
+%% @title Order status lifecycle
+%% @summary Statuses an order moves through after it is placed.
+stateDiagram-v2
+  direction LR
+  [*] --> Pending
+  Pending --> Accepted : restaurant accepts
+  Pending --> Rejected : restaurant rejects
+  Accepted --> Preparing
+  Preparing --> OnTheWay : driver picks up
+  OnTheWay --> Delivered
+  Pending --> Cancelled : customer cancels
+  Rejected --> [*]
+  Delivered --> [*]
+  Cancelled --> [*]
+  class Rejected,Cancelled error
