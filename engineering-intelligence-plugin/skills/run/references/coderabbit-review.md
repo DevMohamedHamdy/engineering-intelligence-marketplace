@@ -68,9 +68,22 @@ Rules:
 
 **Staleness:** before acting on a finding, re-hash the files it touches. Changed since the snapshot → mark `STALE`, re-locate the issue in current code, never apply its suggestion verbatim, and re-review the latest version before the unit counts as complete.
 
-**Sync vs background:**
-- Run **synchronously by default**.
-- Use background execution only if the harness reliably notifies on completion and preserves the full output (e.g. a background shell command whose output is captured to a file and whose exit is reported). Otherwise run synchronously.
+### Live progress — the developer follows the review as it runs (default)
+
+The developer wants to see, while CodeRabbit runs, what it is reviewing and where it is, until it finishes. **Be truthful:** the CLI does not report which file it is reading at a given moment — only its phase, heartbeats, and each finding as it arrives (with file and lines). Never claim "CodeRabbit is now reading X".
+
+1. **Before the run — show what is being sent.** In chat: the file list with `+added/-deleted` (`git diff HEAD --numstat -- <dir>`, plus untracked files if included), then the actual changes CodeRabbit receives: `git diff HEAD -- <files>` shown in the terminal when ≤ ~120 lines; larger → show the `--stat` and open the diffs in the editor instead. For up to 5 target files, open a HEAD↔working diff tab: `python3 -I <skill>/scripts/open_in_editor.py diff --project <root> --tmp <scratch>/diff <file>`. For an incremental re-review (§5) show only the fix delta.
+2. **Run it under the `Monitor` tool** (not a blocking shell call), `timeout_ms` 1800000:
+   `python3 -I <skill>/scripts/watch_review.py --raw <scratch>/review-<n>.ndjson -- "<cli>" review --agent <target flags>`
+   The script prints one line per event: `TARGET`, `PHASE`, `WORKING` (≤ 1 per 45 s), `FINDING #k SEVERITY file:line — title`, `ACTION`, `ERROR`, `EVENT`, `DONE`, and always a final `EXIT code=… complete=…`. If `Monitor` is unavailable, run the same command as a background shell job and read its output file when notified; only as a last resort run it synchronously.
+3. **Relay every event to the developer as it lands** — one short chat line each:
+   - `PHASE` → "CodeRabbit: <phase> · <t>s".
+   - `WORKING` → relay at most every ~2 min ("still <phase>, <k> findings so far").
+   - `FINDING` → "CodeRabbit flagged <SEVERITY> at `file:line` — <title>", show that hunk (±5 lines of the current file) in the terminal, and move the editor to it: `open_in_editor.py goto --project <root> <file>:<line>`. Don't validate or fix yet — keep following until the run ends. If many findings arrive together, show the hunk for each major one and list the rest in one line each.
+   - `ACTION` → stop and ask (paid continuation, §3 table). `ERROR` / `EXIT` with `complete=no` → failed run; fallback rules apply.
+4. **While it runs, do not edit any file in its target.** You may read code, prepare the validation of findings already received, or implement a unit that touches different files.
+5. **When `EXIT` arrives:** the raw NDJSON file (`--raw`) is the source of truth — parse it per the table below (the script's lines are a display aid), cross-check the `complete` count, then validate (§4), run the severity-gated flow (§6), and give the report (§6.5, and the Review Gate summary at the end).
+6. If the monitor times out before `EXIT`, the review is **incomplete** — say so; never report it as clean.
 - While a review runs in the background, **do not edit any file in its target**. Only implement the next unit if it touches different files, and remember those edits will appear in the next `--uncommitted` review, not this one.
 - Never let two agents edit the same files; review/tracing subagents are read-only.
 - A review is complete only when its result was received and read.

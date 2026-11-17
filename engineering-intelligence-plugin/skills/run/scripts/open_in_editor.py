@@ -4,6 +4,8 @@
 Usage:
   python3 -I open_in_editor.py detect [--project <root>]
   python3 -I open_in_editor.py open [--project <root>] <file> [<file> ...]
+  python3 -I open_in_editor.py goto [--project <root>] <file>:<line>      # jump to a line (review finding)
+  python3 -I open_in_editor.py diff [--project <root>] --tmp <dir> <file>  # HEAD ↔ working copy diff tab
 
 detect → JSON: editor name, app bundle, family, verified CLI, version, how it was detected,
          whether a Markdown-preview Mermaid extension is installed, and preview instructions.
@@ -145,15 +147,52 @@ def detect(project):
     return {"status": "not_detected", "reason": "no editor found in process ancestry or Claude Code IDE connections"}
 
 
+def goto_or_diff(a, info):
+    """Open a source file at a line (goto) or a HEAD-vs-working diff tab (diff). Local files only."""
+    if len(a.files) != 1 or re.match(r"^[a-z]+://", a.files[0]):
+        print(json.dumps({"status": "refused", "reason": "exactly one local file expected"})); return 2
+    target = a.files[0]
+    m = re.match(r"^(.*?):(\d+)(?::\d+)?$", target) if a.action == "goto" else None
+    path, line = (m.group(1), m.group(2)) if m else (target, None)
+    full = pathlib.Path(path).resolve()
+    root = pathlib.Path(a.project or os.getcwd()).resolve()
+    if root not in full.parents or not full.is_file():
+        print(json.dumps({"status": "refused", "reason": "file must exist inside the project", "file": str(full)})); return 2
+    cli = info.get("cli") if info.get("family") == "vscode" else None
+    if a.action == "goto":
+        if cli:
+            cmd = [cli, "-r", "-g", f"{full}:{line}" if line else str(full)]
+        elif info.get("family") == "jetbrains" and sys.platform == "darwin":
+            cmd = ["open", "-a", info["install"], str(full)]  # JetBrains via `open`: no line jump
+        else:
+            print(json.dumps({"status": "not_opened", "reason": "no supported editor CLI", "file": f"{full}:{line}"})); return 1
+    else:
+        if not cli or not a.tmp:
+            print(json.dumps({"status": "not_opened", "reason": "diff needs a VS Code-family editor and --tmp"})); return 1
+        rel = full.relative_to(root)
+        rc0, head, _ = sh(["git", "-C", str(root), "show", f"HEAD:{rel.as_posix()}"])
+        base = pathlib.Path(a.tmp).resolve() / "HEAD" / rel
+        base.parent.mkdir(parents=True, exist_ok=True)
+        base.write_text(head if rc0 == 0 else "")  # untracked/new file → empty left side
+        cmd = [cli, "-r", "--diff", str(base), str(full)]
+    rc, out, err = sh(cmd, timeout=30)
+    print(json.dumps({"status": "opened" if rc == 0 else "failed", "editor": info.get("editor"), "command": cmd,
+                      "stderr": err[:300] or None}, indent=2))
+    return 0 if rc == 0 else 1
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["detect", "open"])
+    ap.add_argument("action", choices=["detect", "open", "goto", "diff"])
     ap.add_argument("files", nargs="*")
     ap.add_argument("--project")
+    ap.add_argument("--tmp", help="diff: scratch directory for the HEAD copy (never inside the project)")
     a = ap.parse_intermixed_args()
     info = detect(a.project)
     if a.action == "detect":
         print(json.dumps(info, indent=2)); return 0 if info["status"] == "ok" else 1
+    if a.action in ("goto", "diff"):
+        return goto_or_diff(a, info)
 
     bad = [f for f in a.files if re.match(r"^[a-z]+://", f) or f.lower().endswith((".html", ".htm"))]
     if bad or not a.files:
