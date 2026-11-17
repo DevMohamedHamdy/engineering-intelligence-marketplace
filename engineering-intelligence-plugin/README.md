@@ -20,7 +20,7 @@ Claude is the implementation owner; CodeRabbit is the primary independent review
 
 - Review integration is detected at runtime: the official CodeRabbit Claude Code plugin, the CodeRabbit CLI, or another official local integration — verified, never assumed. Nothing is installed or authenticated without approval. The VS Code extension can be used by the developer but is not invoked by Claude.
 - If CodeRabbit is unavailable, Claude performs an independent review labeled **CLAUDE FALLBACK**.
-- Each logical unit is reviewed, findings are validated by Claude (`VALID` / `FALSE POSITIVE` / `NEEDS INVESTIGATION` / `OUT OF SCOPE`, severity `CRITICAL`…`INFORMATIONAL`), fixed per collaboration mode, tested, and re-reviewed — at most 3 iterations per unit by default.
+- Each logical unit is reviewed, findings are validated by Claude (`VALID` / `FALSE POSITIVE` / `NEEDS INVESTIGATION` / `OUT OF SCOPE`, severity `CRITICAL`…`INFORMATIONAL`), fixed per collaboration mode, tested, and re-reviewed **incrementally** — only the changes made by the fixes, not the whole diff — at most 3 iterations per unit by default.
 - Collaboration modes: **Severity-gated** (default — only CodeRabbit `critical`/`major` findings are brought to you with possible solutions; Claude fixes the rest and reports the options it weighed and why it chose each fix), **Review & Ask**, **Autonomous**.
 - A final pre-push review of the full local diff produces the Engineering Review Report. Nothing is committed or pushed automatically.
 

@@ -18,7 +18,7 @@ The orchestrator drives the **CodeRabbit CLI directly** through the shell, in ag
 ```
 
 - Use the **named scope flags** (`--uncommitted`, `--committed`). `-t uncommitted` / `-t committed` are hidden compatibility aliases in current CLIs; use them only if `review --help` lacks the named flags.
-- Optional, only when part of the approved target: `--include-untracked` (not with `--committed`), `--dir <path>` (inside the git work tree), `--fresh` (no checkpoint reuse — required for the final review, §7).
+- Optional, only when part of the approved target: `--include-untracked` (not with `--committed`), `--dir <path>` (inside the git work tree), `--fresh` (no checkpoint reuse — **only when the developer asks for a full re-review**; re-reviews are incremental, §5).
 - Never add `--use-credits` (authorizes spending), `--api-key`, `--region`, or `--remote` unless the developer explicitly approves that specific use.
 
 The **official CodeRabbit Claude Code plugin** (`coderabbit:code-review`, `coderabbit:autofix`) is used as follows:
@@ -125,7 +125,9 @@ Per logical unit:
 1. Review the unit (CodeRabbit, else CLAUDE FALLBACK) → validate and classify.
 2. Apply the fixes allowed by the mode (§6), inside the Implementation Scope.
 3. Run targeted tests/checks from the approved Verification Scope.
-4. Re-review the updated changes (same target).
+4. **Incremental re-review — only the fix delta** (developer's rule: re-reviews must be fast). Run the same command and target **without `--fresh` and without `--gate`** (`--gate` forces a fresh review). The CLI then reuses its previous local checkpoint and reviews only what changed since the last run — i.e. the fixes. Never re-review the whole diff after a fix. Under `CLAUDE FALLBACK`, review only the hunks edited in this iteration (record `git diff` before fixing and compare), not the full diff.
+   - Check the result's reviewed files: they should be the fixed files. If the CLI reports no checkpoint (e.g. it was cleared) and would review everything, say so in one line and continue — don't add `--fresh`.
+   - Findings from an incremental run on code that the fixes did not touch are reconciled with earlier findings (§7.3), not treated as new.
 5. Repeat until no `VALID` findings at `MEDIUM` or above remain for the unit, or a limit is hit.
 
 **Limits:** default **3 review/fix iterations per unit**; the developer may change it at the Plan Gate or any time. A finding that persists after an attempted fix is not retried again. At either limit: stop for that unit, report unresolved findings with evidence, ask for direction. Never hide or downgrade an unresolved finding.
@@ -192,9 +194,9 @@ Then list `NEEDS INVESTIGATION` / `OUT OF SCOPE` items in one line each. Fill th
 
 After all units are done:
 1. Read the complete local diff for the approved target.
-2. Run CodeRabbit on the **complete latest** local changes with the approved target **plus `--fresh`** (so checkpoint reuse cannot limit it to the last delta). If unavailable/failed: complete `CLAUDE FALLBACK` review, keeping the failure details. On the fast path, the last review is already final if it ran on the final diff and no fix followed it — don't run an extra one.
+2. **No extra full review.** The first review covered the full diff and each incremental re-review covered its fix delta, so together they cover the final diff. The final review is the last incremental run with no fixes after it. Run a full `--fresh` review only if the developer asks, or if some change was never reviewed (e.g. an edit made outside the loop, or a failed run) — then review just that change incrementally. If CodeRabbit is unavailable/failed: `CLAUDE FALLBACK` on the same delta, keeping the failure details.
 3. Reconcile with intermediate findings: same issue → merge history; previously fixed → confirm still fixed; previously rejected → keep the reason unless new evidence appears.
-4. Apply the fix loop (§4–6) to new findings. If any fix is applied, the final review must be repeated on the new latest diff — within the iteration limit. At the limit, report that the final latest diff was **not** reviewed after the last fix.
+4. Apply the fix loop (§4–6) to new findings. If any fix is applied, run one more **incremental** re-review of that fix — within the iteration limit. At the limit, report that the last fix was **not** re-reviewed.
 5. Every unresolved `CRITICAL`/`HIGH` is listed as blocking or as a developer decision — never dropped.
 6. Run the approved Verification Scope; fill `templates/engineering-review-report.md`, including whether the final latest diff (by snapshot ID) was reviewed and by whom.
 

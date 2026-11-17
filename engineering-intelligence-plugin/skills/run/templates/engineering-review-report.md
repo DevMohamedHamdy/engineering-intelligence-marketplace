@@ -23,7 +23,7 @@ Nothing has been committed or pushed. Committing and pushing are the developer's
 
 ## 3. Changes Reviewed
 - **Exact review target:** {{uncommitted (staged + unstaged tracked) | + untracked | committed vs <base> | --dir <path>}}
-- **Command:** `{{coderabbit review --agent --uncommitted …}}` · final run `{{… --fresh}}`
+- **Command:** `{{coderabbit review --agent --uncommitted …}}` · re-reviews incremental (fix delta only) `{{n}}` · full `--fresh` run `{{only if developer asked | none}}`
 - **Excluded from target (and why):** {{untracked files not approved, pre-existing changes, …}}
 - **Final snapshot:** `{{HEAD sha}}` + file hashes `{{id}}`
 - **Final latest diff reviewed:** {{YES by CodeRabbit | YES by CLAUDE FALLBACK | NO — <reason, e.g. iteration limit reached after last fix>}}
