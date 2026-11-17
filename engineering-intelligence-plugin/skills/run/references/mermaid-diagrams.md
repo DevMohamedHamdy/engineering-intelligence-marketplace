@@ -38,7 +38,8 @@ The validator warns above ~30 nodes / 45 edges / 8 sequence participants and **r
 ```
 %% @title    Place order — business flow
 %% @summary  From tapping "Place order" to the confirmation screen, including payment failures.
-%% @snapshot before                      (before | proposed | after | current — only when it applies)
+%% @snapshot before                      (before | proposed | live | after | current — only when it applies)
+%% @status   (live only) what is being changed right now — shown under the comparison header
 %% @node S3  src/hooks/useCheckoutHandlers.ts:120-168 | Validates cart and address
 %% @node S6  src/services/payment.ts:44 | Card charge through the payment SDK
 flowchart TD

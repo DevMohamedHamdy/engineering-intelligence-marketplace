@@ -7,7 +7,8 @@ Pure standard library, no rendering. Imported by render_workspace.py; also usabl
 Metadata lives in Mermaid comments (ignored by Mermaid itself), at the top of the source:
   %% @title    Checkout — place order
   %% @summary  What the diagram shows, in one sentence.
-  %% @snapshot before | proposed | after | current
+  %% @snapshot before | proposed | live | after | current
+  %% @status   What is being changed right now (live diagrams only)
   %% @node S4  src/cart/validate.ts:40-72, src/cart/rules.ts:12 | Validates cart totals against limits
 
 Checks (errors block rendering; warnings are reported):
@@ -26,7 +27,7 @@ SUPPORTED = {
     "flowchart": "flowchart", "graph": "flowchart", "sequenceDiagram": "sequence",
     "stateDiagram-v2": "state", "stateDiagram": "state", "classDiagram": "class", "erDiagram": "er",
 }
-SNAPSHOTS = {"before", "proposed", "after", "current"}
+SNAPSHOTS = {"before", "proposed", "live", "after", "current"}
 ID = r"[A-Za-z_][\w-]*"
 PID = r"[A-Za-z_]\w*"  # sequence participant ids: no '-' (it starts the arrow)
 LIMITS = {  # (warn, error)
@@ -61,14 +62,14 @@ STD_CLASSES = {
 
 
 def parse_meta(src):
-    meta = {"title": None, "summary": None, "snapshot": None, "nodes": {}}
+    meta = {"title": None, "summary": None, "snapshot": None, "status": None, "nodes": {}}
     problems = []
     for n, line in enumerate(src.splitlines(), 1):
         m = re.match(r"\s*%%\s*@(\w+)\s*(.*)$", line)
         if not m:
             continue
         key, val = m.group(1), m.group(2).strip()
-        if key in ("title", "summary"):
+        if key in ("title", "summary", "status"):
             meta[key] = val
         elif key == "snapshot":
             if val not in SNAPSHOTS:
@@ -89,6 +90,9 @@ def parse_meta(src):
 def split_statements(body):
     """Yield (line_no, statement) splitting on newlines and on ';' outside quotes."""
     for n, line in enumerate(body.splitlines(), 1):
+        if line.strip().startswith("%%"):  # comments / metadata: never split
+            yield n, line.strip()
+            continue
         cur, q = "", False
         for ch in line:
             if ch == '"':

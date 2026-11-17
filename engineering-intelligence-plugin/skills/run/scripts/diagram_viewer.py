@@ -33,6 +33,10 @@ section.diagram,section.compare{background:var(--card);border:1px solid var(--li
 .head h2{font-size:16px;margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .head p{margin:4px 0 0;color:var(--muted);font-size:13px;max-width:900px}
 .badge{font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+.badge.live{color:#b91c1c;border-color:#fecaca;display:inline-flex;align-items:center;gap:5px}
+.badge.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#dc2626;animation:eipulse 1.4s ease-in-out infinite}
+@keyframes eipulse{0%,100%{opacity:1}50%{opacity:.25}}
+.livestatus{margin-top:6px;font-size:13px;color:#7f1d1d;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;display:inline-block}
 .badge.before{color:#334155}.badge.after{color:var(--add);border-color:#bbf7d0}.badge.proposed{color:var(--accent);border-color:#bfdbfe}
 .panes{display:grid;grid-template-columns:1fr 1fr;gap:0}
 .panes>.pane+.pane{border-left:1px solid var(--line)}
@@ -226,7 +230,21 @@ JS = r"""
     new ResizeObserver(() => { if (!touched) { sizeStage(); fit(); } }).observe(stage);
     document.addEventListener('fullscreenchange', () => { setTimeout(() => { sizeStage(); fit(); }, 50); });
   }
+  if (!document.fullscreenEnabled) document.querySelectorAll('[data-act="full"]').forEach(b => b.remove());
   document.querySelectorAll('.viewer').forEach(initViewer);
+  // Served locally (IDE tab): reload when the diagrams are re-rendered, keeping the scroll position.
+  if (location.protocol.startsWith('http')) {
+    try { const y = sessionStorage.getItem('ei-scroll'); if (y) { scrollTo(0, +y); sessionStorage.removeItem('ei-scroll'); } } catch (_) {}
+    let stamp = null;
+    setInterval(async () => {
+      try {
+        const r = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+        const t = r.headers.get('Last-Modified') + '|' + r.headers.get('Content-Length');
+        if (stamp && t !== stamp) { try { sessionStorage.setItem('ei-scroll', String(scrollY)); } catch (_) {} location.reload(); }
+        stamp = t;
+      } catch (_) {}
+    }, 1500);
+  }
 })();
 """
 
@@ -275,8 +293,9 @@ def _failed(did, d):
 
 def _badges(d):
     b = f'<span class="badge">{_e(KIND_LABEL.get(d["kind"], d["kind"] or "?"))}</span>'
-    if d["meta"].get("snapshot"):
-        b += f'<span class="badge {d["meta"]["snapshot"]}">{_e(d["meta"]["snapshot"])}</span>'
+    snap = d["meta"].get("snapshot")
+    if snap:
+        b += f'<span class="badge {snap}">{"live — updating" if snap == "live" else _e(snap)}</span>'
     return b
 
 
@@ -294,6 +313,11 @@ def compare_section(name, left_id, right_id, L, R, diff):
         return (f'<div class="pane"><div class="ptitle">{_e(t)}</div>'
                 + (_viewer(did, d, side) if d.get("svg") else _failed(did, d)) + "</div>")
     lab = lambda d, dflt: (d["meta"].get("snapshot") or dflt).upper()
+    live = R["meta"].get("snapshot") == "live"
+    live_badge = ' <span class="badge live">live — updating</span>' if live else ""
+    status = (f'<div class="livestatus">Now: {_e(R["meta"].get("status"))} · updated {_e(GENERATED[0])}</div>'
+              if live and R["meta"].get("status") else
+              f'<div class="livestatus">Implementation in progress · updated {_e(GENERATED[0])}</div>' if live else "")
 
     names = {**L["graph"]["nodes"], **R["graph"]["nodes"]}
     clean = lambda n: _e(str(names.get(n, n)).replace("<br/>", " ").replace("<br>", " "))
@@ -307,14 +331,18 @@ def compare_section(name, left_id, right_id, L, R, diff):
                + items("changed_nodes", "c", "Changed labels") + items("added_edges", "a", "Added relationships")
                + items("removed_edges", "r", "Removed relationships") + items("changed_edges", "c", "Changed relationship labels") + "</div>")
     return (f'<section class="compare" id="c-{_e(name)}"><div class="head"><h2>{_e(name)} — {lab(L, "before")} vs {lab(R, "after")}'
-            f' <span class="badge">Comparison</span></h2><p>Same node ids on both sides; highlighted differences are computed from the diagram sources.'
-            f' <span class="hint">Drag to pan · Ctrl/⌘ + scroll to zoom · click a node to inspect</span></p></div>'
+            f' <span class="badge">Comparison</span>{live_badge}</h2><p>Same node ids on both sides; highlighted differences are computed from the diagram sources.'
+            f' <span class="hint">Drag to pan · Ctrl/⌘ + scroll to zoom · click a node to inspect</span></p>{status}</div>'
             f'<div class="panes">{pane(left_id, L, "left", lab(L, "before"))}{pane(right_id, R, "right", lab(R, "after"))}</div>'
             f'{summary}{_legend(["added", "removed", "changed"])}</section>')
 
 
+GENERATED = [""]
+
+
 def build_html(diagrams, pairs, title, generated, project=None):
     """diagrams: {id: {title, kind, meta, graph, svg|None, error?, classes_used}}; pairs: {name: (left, right, diff)}."""
+    GENERATED[0] = generated
     in_pair = {x for l, r, _ in pairs.values() for x in (l, r)}
     data = {"project": project, "diagrams": {}}
     for did, d in diagrams.items():

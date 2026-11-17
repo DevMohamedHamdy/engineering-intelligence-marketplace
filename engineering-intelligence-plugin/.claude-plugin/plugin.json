@@ -1,6 +1,6 @@
 {
   "name": "ei",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Technology-agnostic engineering workflow: refactor, implement features, fix bugs, review, or analyze any codebase. Named files are handled with a fast, file-only path. Validated Mermaid diagrams render to crisp SVG in a read-only HTML viewer (zoom, pan, node inspection, BEFORE/AFTER comparison) without writing files into the project; CodeRabbit reviews every change automatically (Claude fallback); approval gate before edits; truthful test results; nothing is committed.",
   "author": {
     "name": "M. Hamdy",

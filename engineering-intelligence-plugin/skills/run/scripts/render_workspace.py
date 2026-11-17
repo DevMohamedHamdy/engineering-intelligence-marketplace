@@ -235,7 +235,8 @@ def check_after(ws, project):
 
 
 def find_pairs(diagrams):
-    """before-<name> with after-<name> (else proposed-<name>); also proposed-<name> with after-<name> if no before."""
+    """before-<name> with after-<name>, else live-<name> (implementation in progress), else proposed-<name>;
+    proposed-<name> with after-<name> when there is no before."""
     pairs = {}
     for did in diagrams:
         m = re.match(r"(before|proposed)-(.+)$", did)
@@ -243,7 +244,7 @@ def find_pairs(diagrams):
             continue
         name = m.group(2)
         if m.group(1) == "before":
-            right = f"after-{name}" if f"after-{name}" in diagrams else f"proposed-{name}" if f"proposed-{name}" in diagrams else None
+            right = next((f"{k}-{name}" for k in ("after", "live", "proposed") if f"{k}-{name}" in diagrams), None)
         else:
             right = f"after-{name}" if f"after-{name}" in diagrams and f"before-{name}" not in diagrams else None
         if right:
@@ -332,6 +333,10 @@ def main():
         res.update(status="not_run", reason="no .mmd files or <!-- ei:diagram id=... --> markers found"); print(json.dumps(res, indent=2)); return 2
 
     prepare(diagrams)
+    for did in list(diagrams):
+        m = re.match(r"live-(.+)$", did)
+        if m and f"after-{m.group(1)}" in diagrams:
+            problems.append(f"{did}: live and after diagrams both exist — finish the live diagram (live_diagram.py finish)")
     res["validation"] = {did: d["lint"] for did, d in diagrams.items()}
     invalid = {did: d["lint"]["errors"] for did, d in diagrams.items() if d["lint"]["errors"]}
     pairs = find_pairs(diagrams)
@@ -396,7 +401,7 @@ def main():
         project = pathlib.Path(a.project).resolve() if a.project else None
         page = out_dir / ("diagrams.html" if folder_mode else "index.html")
         page.write_text(V.build_html(diagrams, viewer_pairs, a.title or f"Engineering diagrams — {ws.name}",
-                                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), str(project) if project else None),
+                                     datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(project) if project else None),
                         encoding="utf-8")
         res.update(html=str(page), images=written, render_errors=errors,
                    corrected={did: d["lint"]["fixes"] for did, d in diagrams.items() if d["lint"]["fixes"]})

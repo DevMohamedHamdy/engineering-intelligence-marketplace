@@ -6,7 +6,8 @@ Usage:
   python3 -I open_in_editor.py open [--project <root>] <file> [<file> ...]
   python3 -I open_in_editor.py goto [--project <root>] <file>:<line>      # jump to a line (review finding)
   python3 -I open_in_editor.py diff [--project <root>] --tmp <dir> <file>  # HEAD ↔ working copy diff tab
-  python3 -I open_in_editor.py view <diagrams.html>                        # read-only diagram viewer, local browser
+  python3 -I open_in_editor.py view [--project <root>] <diagrams.html>     # read-only diagram viewer: IDE tab (VS Code
+                                                                           # family, auto-reloads on re-render) or browser
 
 detect → JSON: editor name, app bundle, family, verified CLI, version, how it was detected,
          whether a Markdown-preview Mermaid extension is installed, and preview instructions.
@@ -148,18 +149,129 @@ def detect(project):
     return {"status": "not_detected", "reason": "no editor found in process ancestry or Claude Code IDE connections"}
 
 
-def view(files):
-    """Open a generated diagram viewer (local .html file named diagrams.html or index.html under a diagrams
-    folder) in the default browser as a file:// page. Refuses URLs and any other HTML."""
+def state_file(folder):
+    """Server state lives in the system temp dir — never inside the project or diagram folder."""
+    import hashlib, tempfile
+    return pathlib.Path(tempfile.gettempdir()) / f"ei-viewer-{hashlib.sha1(str(folder).encode()).hexdigest()[:12]}.json"
+SERVE_IDLE = 1800  # seconds without requests before the local viewer server exits
+
+
+def viewer_file(files):
     if len(files) != 1 or re.match(r"^[a-z]+://", files[0]):
-        print(json.dumps({"status": "refused", "reason": "exactly one local viewer file expected"})); return 2
+        return None, "exactly one local viewer file expected"
     f = pathlib.Path(files[0]).resolve()
     if not f.is_file() or not (f.name == "diagrams.html" or (f.name == "index.html" and f.parent.name == "diagrams")):
-        print(json.dumps({"status": "refused", "reason": "only a generated diagrams.html / diagrams/index.html is opened", "file": str(f)})); return 2
+        return None, "only a generated diagrams.html / diagrams/index.html is opened"
+    return f, None
+
+
+def server_alive(folder):
+    import urllib.request
+    try:
+        st = json.loads(state_file(folder).read_text())
+        with urllib.request.urlopen(f"http://127.0.0.1:{st['port']}/__ei_ping", timeout=2) as r:
+            return st["port"] if r.read().decode() == str(folder) else None
+    except Exception:
+        return None
+
+
+def ensure_server(folder):
+    """Reuse or start a detached, local-only (127.0.0.1) static server for the diagram folder."""
+    port = server_alive(folder)
+    if port:
+        return port
+    state_file(folder).unlink(missing_ok=True)
+    subprocess.Popen([sys.executable, "-I", os.path.abspath(__file__), "serve", str(folder)],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    import time
+    for _ in range(50):
+        time.sleep(0.1)
+        port = server_alive(folder)
+        if port:
+            return port
+    return None
+
+
+def serve(folder):
+    """Serve only .html/.svg files of one diagram folder on 127.0.0.1 (random port), no caching, no listings.
+    Exits after SERVE_IDLE seconds without requests. Used so the viewer can open inside the IDE."""
+    import http.server, threading, time
+    folder = pathlib.Path(folder).resolve()
+    last = [time.time()]
+
+    class H(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=str(folder), **k)
+
+        def log_message(self, *a):
+            pass
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def _allowed(self):
+            last[0] = time.time()
+            path = self.path.split("?", 1)[0]
+            if path == "/__ei_ping":
+                body = str(folder).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers()
+                if self.command == "GET":
+                    self.wfile.write(body)
+                return False
+            if path == "/" or not path.endswith((".html", ".svg")) or ".." in path:
+                self.send_error(404); return False
+            return True
+
+        def do_GET(self):
+            if self._allowed():
+                super().do_GET()
+
+        def do_HEAD(self):
+            if self._allowed():
+                super().do_HEAD()
+
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    state_file(folder).write_text(json.dumps({"port": httpd.server_address[1], "pid": os.getpid()}))
+
+    def reaper():
+        while time.time() - last[0] < SERVE_IDLE:
+            time.sleep(15)
+        httpd.shutdown()
+    threading.Thread(target=reaper, daemon=True).start()
+    try:
+        httpd.serve_forever()
+    finally:
+        state_file(folder).unlink(missing_ok=True)
+    return 0
+
+
+def view(files, project):
+    """Open the generated diagram viewer. VS Code-family editors (Trae, VS Code, Cursor, ...): inside the IDE —
+    served from 127.0.0.1 and opened with `<cli> --open-url`, which the built-in Simple Browser handles; the page
+    then reloads itself whenever the diagrams are re-rendered. Otherwise: the default browser, as a file:// page.
+    Refuses URLs and any other HTML."""
+    f, why = viewer_file(files)
+    if not f:
+        print(json.dumps({"status": "refused", "reason": why})); return 2
+    info = detect(project)
+    if info.get("family") == "vscode" and info.get("cli"):
+        port = ensure_server(f.parent)
+        if port:
+            url = f"http://127.0.0.1:{port}/{f.name}"
+            rc, out, err = sh([info["cli"], "--open-url", url])
+            if rc == 0:
+                print(json.dumps({"status": "opened", "where": f"{info.get('editor')} (Simple Browser tab)", "url": url,
+                                  "auto_reload": True,
+                                  "note": "If the editor asks how to open the link, choose Simple Browser; to stop the question, add "
+                                          "\"workbench.externalUriOpeners\": {\"127.0.0.1:*\": \"simpleBrowser.open\"} to its user settings."},
+                                 indent=2))
+                return 0
     cmd = (["open", str(f)] if sys.platform == "darwin" else ["cmd", "/c", "start", "", str(f)] if os.name == "nt"
            else ["xdg-open", str(f)])
     rc, out, err = sh(cmd)
-    print(json.dumps({"status": "opened" if rc == 0 else "failed", "url": f.as_uri(), "command": cmd, "stderr": err[:300] or None}, indent=2))
+    print(json.dumps({"status": "opened" if rc == 0 else "failed", "where": "default browser", "url": f.as_uri(),
+                      "command": cmd, "stderr": err[:300] or None}, indent=2))
     return 0 if rc == 0 else 1
 
 
@@ -199,13 +311,15 @@ def goto_or_diff(a, info):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["detect", "open", "goto", "diff", "view"])
+    ap.add_argument("action", choices=["detect", "open", "goto", "diff", "view", "serve"])
     ap.add_argument("files", nargs="*")
     ap.add_argument("--project")
     ap.add_argument("--tmp", help="diff: scratch directory for the HEAD copy (never inside the project)")
     a = ap.parse_intermixed_args()
     if a.action == "view":
-        return view(a.files)
+        return view(a.files, a.project)
+    if a.action == "serve":
+        return serve(a.files[0])
     info = detect(a.project)
     if a.action == "detect":
         print(json.dumps(info, indent=2)); return 0 if info["status"] == "ok" else 1

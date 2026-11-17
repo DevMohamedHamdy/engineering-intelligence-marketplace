@@ -40,6 +40,11 @@ class FixturesTest(unittest.TestCase):
         self.assertEqual(r["errors"], [])
         self.assertEqual({(e["from"], e["to"]) for e in r["graph"]["edges"]}, {("A", "B"), ("A", "C")})
 
+    def test_semicolon_in_metadata_comment(self):
+        r = L.lint('%% @node A src/a.ts:1 | first; then second\n' + flow('A["a"]'))
+        self.assertEqual(r["errors"], [])
+        self.assertEqual(r["meta"]["nodes"]["A"]["description"], "first; then second")
+
     def test_sequence_participants(self):
         r = L.lint((FIX / "sequence-checkout.mmd").read_text())
         self.assertEqual(set(r["graph"]["nodes"]), {"U", "CHK", "HK", "API", "BE"})
