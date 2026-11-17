@@ -83,6 +83,7 @@ def main():
     ap.add_argument("--status")
     ap.add_argument("--project")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--no-open", action="store_true", help="start: don't bring the compare tab to the front")
     a = ap.parse_args()
     folder = pathlib.Path(a.folder).resolve()
     before, live, after = (folder / f"{k}-{a.name}.mmd" for k in ("before", "live", "after"))
@@ -120,6 +121,15 @@ def main():
     if a.action in ("start", "finish"):  # a new LIVE round starts at step 0; AFTER has no "latest step"
         (folder / f"live-{a.name}.history.json").unlink(missing_ok=True)
     out["render"] = None if a.no_render else render(folder, a.project, quick=a.action == "status")
+    tab = folder / f"compare-{a.name}.svg"
+    if a.action == "start" and not a.no_render and not a.no_open and tab.is_file():
+        # bring the BEFORE | LIVE tab to the front now, before the first code edit (same file as the BEFORE tab)
+        p = subprocess.run([sys.executable, "-I", str(HERE / "open_in_editor.py"), "open", str(tab),
+                            *(["--project", a.project] if a.project else [])], capture_output=True, text=True, timeout=60)
+        try:
+            out["opened"] = json.loads(p.stdout).get("status")
+        except ValueError:
+            out["opened"] = "failed"
     out["status"] = "ok" if a.no_render or out["render"].get("status") == "ok" else "error"
     print(json.dumps(out, indent=2))
     return 0 if out["status"] == "ok" else 1

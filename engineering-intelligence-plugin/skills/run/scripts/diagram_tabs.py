@@ -276,10 +276,12 @@ def card(title, subtitle_lines, legend, body, body_w, body_h, generated, css="")
     return "".join(out), head_h
 
 
-def single_card(did, d, generated):
+def single_card(did, d, generated, note=None):
     w, h = svg_size(d["svg"])
     meta = d.get("meta") or {}
     subtitle = [(l, "#475569") for l in wrap(meta.get("summary") or "", 12.5, max(w, 512), 3)]
+    if note:
+        subtitle.append((note, NOW))
     _, head_h = card(d.get("title") or did, subtitle, False, "", w, h + PANE_HEAD, generated)
     body = pane(d, PAD, head_h + 10, max(w, 512), d["svg"])
     svg, _ = card(d.get("title") or did, subtitle, False, body, w, h + PANE_HEAD + 10, generated)
@@ -390,8 +392,8 @@ def update_live_history(folder, diagrams, stamp):
 
 
 def write_tabs(out_dir, diagrams, pairs, generated):
-    """Write compare-<name>.svg for every pair and diagram-<id>.svg for every unpaired diagram; remove stale tab
-    files. pairs: {name: (left_id, right_id, graph_diff)}. Returns the tab files, compare views first."""
+    """Write compare-<name>.svg for every pair — and for a BEFORE that has no partner yet, so the developer's tab
+    never changes file — and diagram-<id>.svg for every other diagram; remove stale tab files. pairs: {name: (left_id, right_id, graph_diff)}. Returns the tab files, compare views first."""
     out_dir = pathlib.Path(out_dir)
     paired = {i for l, r, _ in pairs.values() for i in (l, r)}
     keep = []
@@ -402,6 +404,13 @@ def write_tabs(out_dir, diagrams, pairs, generated):
             keep.append(p)
     for did, d in sorted(diagrams.items()):
         if did in paired or not d.get("svg"):
+            continue
+        m = re.match(r"before-(.+)$", did)
+        if m:  # BEFORE alone already lives in compare-<name>.svg: one tab, one file, BEFORE → LIVE → AFTER
+            p = out_dir / f"compare-{m.group(1)}.svg"
+            p.write_text(single_card(did, d, generated, note="LIVE appears next to BEFORE in this same tab when coding starts"),
+                         encoding="utf-8")
+            keep.insert(0, p)
             continue
         p = out_dir / f"diagram-{did}.svg"
         p.write_text(single_card(did, d, generated), encoding="utf-8")

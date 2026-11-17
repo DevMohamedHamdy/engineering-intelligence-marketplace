@@ -56,10 +56,15 @@ def parent(pid):
         return None
 
 
+INTERPRETER = re.compile(r"(\.framework/|/(python[\d.]*|Python|node|bash|zsh|sh|fish|dash|env|ruby|perl)$)")
+
+
 def install_from_exe(exe):
     """Return (install_root, kind) for an executable path, or (None, None)."""
     if not exe:
         return None, None
+    if INTERPRETER.search(exe):
+        return None, None  # python / node / shells live inside other bundles (e.g. Xcode's Python) — not the editor
     m = re.match(r"(.*?\.app)/Contents/", exe)
     if m:  # macOS: outermost .app bundle
         return m.group(1), "macos-app"

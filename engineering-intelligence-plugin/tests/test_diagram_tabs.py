@@ -84,6 +84,20 @@ class TabsTest(unittest.TestCase):
         (self.d / "diagrams.html").write_text("<html></html>")
         self.assertIn("no compare-", run(str(self.d)).stdout, "an HTML page alone is never opened")
 
+    def test_before_alone_uses_the_same_tab_file(self):
+        ds = {"before-rating": self.ds["before-rating"]}
+        tabs = T.write_tabs(self.d, ds, {}, "t0")
+        self.assertEqual([t.name for t in tabs], ["compare-rating.svg"], "BEFORE is shown in the tab LIVE will use")
+        self.assertIn("LIVE appears next to BEFORE in this same tab", tabs[0].read_text())
+        T.write_tabs(self.d, self.ds, self.pairs, "t1")
+        self.assertIn("LIVE — updating", (self.d / "compare-rating.svg").read_text())
+
+    def test_interpreters_are_never_taken_for_the_editor(self):
+        xcode_py = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"
+        self.assertEqual(O.install_from_exe(xcode_py), (None, None), "macOS Python lives in Xcode.app — not the editor")
+        self.assertEqual(O.install_from_exe("/bin/zsh"), (None, None))
+        self.assertEqual(O.install_from_exe("/Applications/Trae.app/Contents/MacOS/Electron"), ("/Applications/Trae.app", "macos-app"))
+
     def test_view_finds_tabs_compare_first(self):
         T.write_tabs(self.d, self.ds, self.pairs, "t")
         (self.d / "diagrams.html").write_text("<html></html>")
