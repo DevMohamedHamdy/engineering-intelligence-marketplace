@@ -25,7 +25,7 @@ python3 -I <skill-dir>/scripts/verify_baseline.py run <session-dir> --project <r
 ```
 
 - `start` registers the task: from now on the plugin's edit hook **denies edits to project files** until
-  `gate --stage plan` passes (Feature: before the Plan Gate question; Fix: before the first edit).
+  `gate --stage plan` passes (before the Plan Gate question — Feature and Fix).
 - `criteria`: one entry per acceptance criterion (`{"id": "AC-1", "text": "…"}`). Wording such as "by any path",
   "never", "must not", "can't", "prevent", "block" marks it **every-path**: an entry-point analysis (§3) becomes
   mandatory for it. Turning that off needs `every_path: false` + `override_reason`.

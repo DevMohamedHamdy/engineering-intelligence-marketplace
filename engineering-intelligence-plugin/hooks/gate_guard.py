@@ -55,10 +55,9 @@ def pre(event):
         return 0
     if t["impact"].get("edits_allowed") or (t["impact"].get("gates") or {}).get("plan", {}).get("passed"):
         return 0
-    when = "the Plan Gate" if t["task"] == "feature" else "the first edit"
     out("PreToolUse", permissionDecision="deny",
         permissionDecisionReason=(
-            f"EI {t['task']} task: the recorded checkpoint before {when} has not passed, so {t['rel']} can't be edited yet. "
+            f"EI {t['task']} task: the recorded checkpoint before the Plan Gate has not passed, so {t['rel']} can't be edited yet. "
             f"Run: python3 -I \"{SCRIPTS / 'impact_check.py'}\" gate \"{t['session']}\" --stage plan — then record what it "
             "lists (changed-symbol consumers, guarded-action entry points, open questions, conventions profile, "
             "type/lint baseline) and run it again. If this EI task was cancelled or abandoned, release the guard: "

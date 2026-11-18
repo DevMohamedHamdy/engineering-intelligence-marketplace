@@ -8,7 +8,7 @@
   Sink-to-source entry points     every guarded action (submit, pay, navigate…) → every call site that reaches it,
                                   directly or through a handler (backward trace) → is the guard enforced on that path?
                                   Acceptance criteria worded "any path", "never", "must not"… require this automatically.
-  Gate                            `gate --stage plan` (Feature: Plan Gate; Fix: before the first edit) and
+  Gate                            `gate --stage plan` (before the Plan Gate) and
                                   `gate --stage review` (Review Gate) validate every required record and list blockers.
   Second review brief             `brief` gives the independent system-aware reviewer the diff plus this context;
                                   `review` records each final full-diff review against the exact diff it saw.

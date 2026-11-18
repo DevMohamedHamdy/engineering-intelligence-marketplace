@@ -546,10 +546,10 @@ class WorkflowIntegration(Base):
 class FixWorkflow(Base):
     task = "fix"
 
-    def test_fix_has_no_plan_gate_but_the_same_checkpoint_before_the_first_edit(self):
+    def test_fix_has_the_same_plan_checkpoint_before_any_edit(self):
         self.intake()
         deny = hook("pre", self.fx.repo / CHECKOUT)
-        self.assertIn("before the first edit", deny["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("before the Plan Gate", deny["hookSpecificOutput"]["permissionDecisionReason"])
         self.ok("impact_check.py", "guard", self.S, "--json", "-", payload=GUARD)
         self.ok("impact_check.py", "declare", self.S, "--none", "symbols", "--reason", "the fix only adds a check inside continueReviewedOrder")
         c, g = self.gate("plan")
