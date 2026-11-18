@@ -54,6 +54,8 @@ Read 3–5 representative files per major area (e.g., one screen/page, one servi
 - Lint/format/type-check config and strictness.
 - Anything inconsistent: note *both* patterns and their approximate prevalence (count files via search). The dominant pattern is the project convention; the minority is drift or migration-in-progress — say which, with evidence.
 
+**Conventions profile (Feature and Fix: always).** `conventions.py collect <session-dir> --project <root>` adds what sampling can't see: lint / format configuration, standards documents, how consistently the code follows a pattern, and the last ~100 human PR review comments (`gh api`, bots excluded; unavailable → recorded as a limitation). Every convention gets ENFORCED / OBSERVED / ADVISORY / NOT_APPLICABLE with its evidence and a confidence word. A single reviewer comment is not a team rule; inconsistent naming stays ADVISORY. The profile lives in the session folder, never in the project (`system-impact.md` §6).
+
 ## Step 5 — Produce the profile
 
 Fill `templates/project-profile.md`. Keep it factual; recommendations belong in other workflows. Tag every item with an evidence level per `evidence-model.md`.

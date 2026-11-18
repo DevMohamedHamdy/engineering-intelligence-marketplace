@@ -32,6 +32,15 @@ From the entry point, follow the call chain. For each hop, read the function and
 
 Follow through indirection deliberately: DI bindings, interface → implementation, event emit → listeners, store action → reducer/effect, route → handler, middleware/interceptor chains, decorators/annotations, HOCs/wrappers, ORM hooks, DB triggers in migrations. When you cannot resolve an indirection, mark the step `UNKNOWN` and record what you searched for.
 
+## Step 2b — Trace backward from guarded actions (sink → every source)
+
+A forward trace starts at one entry point; a rule ("don't submit while COD is re-checking") holds only if **every** path to the action enforces it. Whenever the change adds or relies on a guard — disabled state, validation, permission, loading / in-flight state, payment restriction, authentication, submission or duplicate-action prevention — and whenever an acceptance criterion says "by any path", "never", "must not", or equivalent:
+
+1. Name the guarded action (the sink: submit, pay, place order, navigate, write).
+2. `impact_check.py callers <session-dir> --action <name>` — every reference to it and the handlers / props that reach those references (sheets, timers, deep links, pickup flows…). Search aliases too (callbacks passed on under another name).
+3. For each path record: entry point and caller chain · guard location · enforced on this path (yes / no / unknown) · can it bypass the guard · evidence (`path:line`) — `impact_check.py guard` refuses the record while any discovered call site is unclassified.
+4. Record unresolved paths and the static-search limits; never state that all paths are covered beyond what the search can establish. Re-record when callers or the guard change. Details: `system-impact.md` §3.
+
 ## Step 3 — Capture logic elements (checklist)
 
 For every step, explicitly look for and record:

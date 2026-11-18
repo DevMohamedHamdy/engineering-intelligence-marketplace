@@ -1,6 +1,18 @@
 {
-  "description": "EI LIVE diagram: after every code edit while a LIVE diagram is active, remind Claude to draw that edit into it before the next one",
+  "description": "EI hooks: hold project edits until a Feature/Fix task's recorded checkpoint passes; after each edit, flag existing symbols missing from the consumer analysis and remind Claude to draw the edit into the LIVE diagram",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_guard.py\" pre",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
@@ -8,6 +20,11 @@
           {
             "type": "command",
             "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/live_reminder.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_guard.py\" post",
             "timeout": 10
           }
         ]

@@ -27,6 +27,18 @@ Claude is the implementation owner; CodeRabbit is the primary independent review
 
 Details: `skills/run/SKILL.md` (orchestration) and `skills/run/references/coderabbit-review.md` (review method).
 
+## System checkpoints for Feature and Fix
+
+A diff-only view misses what reaches the changed code. Feature and Fix tasks record five checkpoints, each validated by a script, and the plugin's edit hook denies project edits until the plan checkpoint passes (`skills/run/references/system-impact.md`):
+
+1. **Changed symbols → consumers → before/after → behavior to preserve** (`impact_check.py symbol`): every consumer found by search must be classified; consumers outside the ticket need their impact and a regression check, and a behavior change for them needs a scoped decision (keep · everywhere · only under the new condition, with side effects).
+2. **Guarded action → every entry point → enforced?** (`impact_check.py guard`): a backward trace from the sink; mandatory for acceptance criteria worded "any path", "never", "must not"; unguarded paths block the Review Gate.
+3. **Open-question ledger** (`decision_records.py ask/answer/defer`): OPEN until the exact question is answered with evidence; a developer preference never closes a backend-contract question; findings are dismissed as false positives only with code, test, or documentation evidence.
+4. **Conventions profile** (`conventions.py`): lint config, standards docs, code consistency, and recent human review comments → ENFORCED / OBSERVED / ADVISORY conventions, checked against the added lines.
+5. **Type/lint baseline** (`verify_baseline.py`): the same commands before the first edit and after the last; new · resolved · changed · existing errors across the whole output, never filtered by file.
+
+Then a final full-diff CodeRabbit run, an **independent system-aware review** (a fresh read-only subagent briefed with the diff, consumers, entry points, criteria, open questions, and conventions), and a PR description with **Reviewer Notes** checked against the records (`final_report.py pr` / `pr-check`). `impact_check.py gate --stage plan|review` lists every blocker. Regression scenarios from PR #708: `tests/test_pr708.py`.
+
 ## Execution levels and approval gates
 
 | Level | Code changes |
@@ -51,14 +63,18 @@ skills/run/
   scripts/diagram_lint.py             # diagram validation, controlled auto-correction, graph extraction and diff
   hooks/live_reminder.py              # PostToolUse hook: while LIVE is active, every code edit gets a 'draw this edit' reminder
   scripts/change_log.py               # What changed and why: one sourced reason per change, checked against the real diff
+  scripts/impact_check.py             # Feature/Fix checkpoints: changed-symbol consumers, sink-to-source entry points, gates, second-review brief
+  scripts/conventions.py              # session conventions profile from lint, docs, code, and human review history; diff check
+  scripts/verify_baseline.py          # type check / lint before and after: existing · new · resolved · changed errors
+  hooks/gate_guard.py                 # PreToolUse: no project edit before the plan checkpoint; PostToolUse: unrecorded modified symbols
   scripts/diagram_tabs.py             # editor image tabs: compare-<name>.svg (BEFORE | AFTER side by side, diff highlighted), diagram-<id>.svg
   scripts/diagram_viewer.py           # self-contained viewer page: zoom / fit / pan / full screen / node inspection
   scripts/evidence_ledger.py          # Evidence ledger: provenance, repository state, lifecycle, integrity, query, trace
   scripts/assurance.py                # Confidence & Assurance: per-rule status, explained scores, verdict from records
   scripts/benchmark.py                # Refactoring Quality Benchmark: deterministic before/after metrics, agent runs
-  scripts/final_report.py             # plan/execution log + Final Detailed Report export (md/html/json)
+  scripts/final_report.py             # plan/execution log + Final Detailed Report export (md/html/json) + PR description / pr-check
   scripts/business_audit.py           # Business Logic Impact Audit: baseline rules, before/after runs, diff→rule map, findings, report
-  scripts/decision_records.py         # Decision Records: add / revise / transition / human / supersede / outcome / validate / show / report
+  scripts/decision_records.py         # Decision Records + open-question ledger + review-finding dispositions
   scripts/live_diagram.py             # BEFORE -> LIVE (updates during implementation) -> AFTER
   scripts/watch_review.py             # live CodeRabbit review progress
   scripts/open_in_editor.py           # detect editor, open files / jump to lines / diff tabs; `view` opens the diagram viewer

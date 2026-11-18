@@ -17,6 +17,21 @@ Usage (every command prints one JSON object; exit 0 ok, 1 refused/invalid, 2 usa
   python3 -I decision_records.py show       <decisions.json> [--ids D-001,D-002] [--status PROPOSED,UNDER_REVIEW]   (Markdown, plan review)
   python3 -I decision_records.py report     <decisions.json> [--project <root>] [--diagrams <dir>] [--out <file.md>]  (final report section)
   python3 -I decision_records.py export     <decisions.json> --format json|md [--out <file>]
+
+Open-question ledger (same file, `questions`): an unresolved question stays OPEN until the exact question is answered
+with evidence (or by an approved decision, where a decision can settle it). A developer preference never closes a
+backend / API contract question.
+  python3 -I decision_records.py ask        <decisions.json> --json <file|->         new question (status OPEN)
+  python3 -I decision_records.py answer     <decisions.json> <Q-id> --json <file|->  ANSWERED only with qualifying evidence
+  python3 -I decision_records.py defer      <decisions.json> <Q-id> --actor developer --via "<gate>" --reason "<why>"
+  python3 -I decision_records.py reject-question <decisions.json> <Q-id> --json <file|->   REJECTED: evidence it does not apply
+  python3 -I decision_records.py reopen     <decisions.json> <Q-id> --reason "<new information>"
+  python3 -I decision_records.py questions  <decisions.json> [--status OPEN,DEFERRED]  (Markdown)
+
+Review-finding dispositions (`findings`): every finding from CodeRabbit, the system-aware reviewer, or a human reviewer
+gets a classification and a disposition; dismissing one as FALSE_POSITIVE needs code, test, or documentation evidence.
+  python3 -I decision_records.py finding        <decisions.json> --json <file|->
+  python3 -I decision_records.py finding-update <decisions.json> <F-id> --json <file|->
 """
 import argparse, datetime, json, os, pathlib, re, sys, tempfile
 
@@ -29,7 +44,8 @@ EVIDENCE_KINDS = ["VERIFIED", "PARTIAL", "INFERRED", "UNKNOWN", "HUMAN"]  # evid
 HUMAN_TYPES = ["comment", "constraint", "alternative", "reconsider"]
 CONTENT_FIELDS = ["title", "category", "context", "question", "alternatives", "selected", "rationale", "only_option_reason",
                   "trade_offs", "assumptions", "risks", "evidence", "related", "approval_required",
-                  "changes_architecture", "changes_behavior", "phase"]
+                  "changes_architecture", "changes_behavior", "phase", "changes_shared_behavior", "side_effects",
+                  "conditional_not_applicable"]
 # (from, to): who may do it — "any", or "developer" (explicit human action required)
 TRANSITIONS = {
     ("PROPOSED", "UNDER_REVIEW"): "any", ("PROPOSED", "APPROVED"): "developer", ("PROPOSED", "REJECTED"): "developer",
@@ -42,6 +58,23 @@ TRANSITIONS = {
 }
 VAGUE = re.compile(r"^(it'?s |this is |for )?(a )?(cleaner|better|simpler|nicer|more (maintainable|readable|scalable)|best practice|"
                    r"good practice|better architecture|cleaner code|industry standard|more modern)[\s\w-]{0,20}\.?$", re.I)
+QUESTION_KINDS = ["contract", "backend", "missing-field", "timing", "requirement", "product", "technical"]
+EXTERNAL_KINDS = {"contract", "backend", "missing-field", "timing"}  # only the system's owner (or its docs / observed behavior) can answer
+Q_STATUSES = ["OPEN", "ANSWERED", "DEFERRED", "REJECTED"]
+FINDING_CLASSES = ["VALID", "FALSE_POSITIVE", "NEEDS_INVESTIGATION", "OUT_OF_SCOPE", "PREFERENCE", "EXPLANATION_REQUEST",
+                   "CONTRACT_QUESTION"]
+VALID_KINDS = ["defect", "convention", "maintainability", "security", "performance", "test-gap"]
+DISPOSITIONS = ["FIXED", "DISMISSED", "DEFERRED", "OPEN", "EXPLAINED", "LEFT_AS_IS"]
+ALLOWED_DISPOSITIONS = {
+    "VALID": {"FIXED", "DEFERRED", "OPEN"},
+    "FALSE_POSITIVE": {"DISMISSED", "OPEN"},
+    "NEEDS_INVESTIGATION": {"OPEN", "DEFERRED"},
+    "OUT_OF_SCOPE": {"DEFERRED", "LEFT_AS_IS"},
+    "PREFERENCE": {"LEFT_AS_IS", "FIXED"},
+    "EXPLANATION_REQUEST": {"EXPLAINED", "FIXED"},
+    "CONTRACT_QUESTION": {"OPEN", "DEFERRED", "FIXED", "LEFT_AS_IS"},
+}
+STRONG_KINDS = {"VERIFIED", "PARTIAL", "TEST", "DOC"}  # code read, a check that ran, or documentation
 REF = re.compile(r"^(?P<path>[^\s:#]+)(?::(?P<a>\d+)(?:-(?P<b>\d+))?|#(?P<sym>[\w.$-]+))?$")
 DIAGRAM_REF = re.compile(r"^(?P<diagram>[A-Za-z0-9_-]+)(?:#(?P<node>[A-Za-z_][\w-]*))?$")
 
@@ -53,10 +86,12 @@ def now():
 def load(path):
     p = pathlib.Path(path)
     if not p.exists():
-        return {"schema": "ei.decision-records/1", "decisions": []}
+        return {"schema": "ei.decision-records/1", "decisions": [], "questions": [], "findings": []}
     data = json.loads(p.read_text(encoding="utf-8"))
     if data.get("schema") != "ei.decision-records/1":
         raise ValueError("not an EI decision-records file")
+    data.setdefault("questions", [])
+    data.setdefault("findings", [])
     return data
 
 
@@ -81,9 +116,9 @@ def find(data, did):
     return None
 
 
-def next_id(data):
-    nums = [int(d["id"].split("-")[1]) for d in data["decisions"] if re.fullmatch(r"D-\d+", d["id"])]
-    return f"D-{(max(nums) + 1 if nums else 1):03d}"
+def next_id(data, key="decisions", prefix="D"):
+    nums = [int(d["id"].split("-")[1]) for d in data[key] if re.fullmatch(prefix + r"-\d+", d["id"])]
+    return f"{prefix}-{(max(nums) + 1 if nums else 1):03d}"
 
 
 # ---------------------------------------------------------------- validation
@@ -134,6 +169,8 @@ def check_record(d, project=None, diagrams=None):
     rat = (d.get("rationale") or "").strip()
     if rat and (VAGUE.match(rat) or len(rat) < 25):
         e.append("rationale is vague — explain the concrete reason (behavior, constraint, evidence), not 'cleaner/better'")
+    if d.get("changes_shared_behavior"):
+        e += scoped_option_errors(d)
     for k in ("trade_offs", "assumptions", "risks"):
         if not isinstance(d.get(k, []), list):
             e.append(f"{k} must be a list")
@@ -160,6 +197,23 @@ def check_record(d, project=None, diagrams=None):
         elif diagrams:
             w += check_diagram_ref(m, pathlib.Path(diagrams))
     return e, w
+
+
+def scoped_option_errors(d):
+    """A decision that changes existing shared behavior must show the scoped choices and the side effects, so the
+    developer never approves a global change through a binary question."""
+    if not d.get("changes_shared_behavior"):
+        return ["changes behavior for consumers outside the ticket: set changes_shared_behavior: true and present the scoped options"]
+    e = []
+    scopes = {a.get("scope") for a in d.get("alternatives") or []}
+    for sc, label in (("keep", "keep the existing behavior"), ("global", "apply the new behavior everywhere"),
+                      ("conditional", "apply it only under the new condition")):
+        if sc not in scopes and not (sc == "conditional" and (d.get("conditional_not_applicable") or "").strip()):
+            e.append(f"missing the option to {label} (alternative with scope: {sc})")
+    if not d.get("side_effects"):
+        e.append("side_effects must name every side change (removed disabled states, press / navigation / default / "
+                 "validation / visibility changes, who else is affected)")
+    return e
 
 
 def check_evidence(ev, project, warnings):
@@ -389,7 +443,319 @@ def cmd_validate(a):
             e.append(f"superseded_by {d['superseded_by']} does not exist")
         bad += bool(e)
         res[d["id"]] = {"errors": e, "warnings": w}
-    return emit({"status": "ok" if not bad else "invalid", "decisions": res}, 1 if bad else 0)
+    for q in data["questions"]:
+        e = check_question(q)
+        bad += bool(e)
+        res[q["id"]] = {"errors": e, "warnings": []}
+    for f in data["findings"]:
+        e = check_finding(f, data, a.project)
+        bad += bool(e)
+        res[f["id"]] = {"errors": e, "warnings": []}
+    open_q = [q["id"] for q in data["questions"] if q["status"] in ("OPEN", "DEFERRED")]
+    return emit({"status": "ok" if not bad else "invalid", "decisions": res, "open_questions": open_q}, 1 if bad else 0)
+
+
+# ---------------------------------------------------------------- open questions and finding dispositions
+
+def _txt(v, n=1):
+    return isinstance(v, str) and len(v.strip()) >= n
+
+
+def check_strong(ev, project=None):
+    """Errors for one evidence item of kind VERIFIED/PARTIAL (code), TEST (a check that ran) or DOC (documentation)."""
+    k = ev.get("kind")
+    if k in ("VERIFIED", "PARTIAL"):
+        return check_evidence(ev, project, [])
+    if k == "TEST":
+        return [] if _txt(ev.get("command"), 3) and _txt(ev.get("result"), 3) else ["TEST evidence needs the command and its observed result"]
+    if k == "DOC":
+        return [] if _txt(ev.get("ref"), 3) and _txt(ev.get("quote"), 10) else ["DOC evidence needs the document ref and the quoted passage"]
+    return [f"{k} is not code, test, or documentation evidence"]
+
+
+def role_matches(role, owner):
+    words = lambda t: {w for w in re.findall(r"[a-z]+", (t or "").lower()) if w not in ("team", "the", "a", "an", "of", "or", "and")}
+    return bool(words(role) & words(owner))
+
+
+def answer_errors(q, ans, data, project=None):
+    e = []
+    if not _txt(ans.get("text"), 15):
+        e.append("the answer text is required (what exactly was answered)")
+    if ans.get("addresses_question") is not True:
+        e.append("addresses_question must be true: the evidence answers this exact question, not a related one")
+    evidence = ans.get("evidence") or []
+    decision = ans.get("decision")
+    if not evidence and not decision:
+        e.append("an answer needs evidence (code, test, documentation, or a statement from the owner) or an approved decision")
+    qualifying = []
+    for ev in evidence:
+        k = ev.get("kind")
+        if k == "HUMAN":
+            if not (_txt(ev.get("source"), 2) and _txt(ev.get("role"), 2) and _txt(ev.get("quote"), 5)):
+                e.append("HUMAN evidence needs source (who), role, and the quoted answer")
+                continue
+            if q["kind"] in EXTERNAL_KINDS and not role_matches(ev["role"], q.get("owner")):
+                e.append(f"a statement from '{ev['role']}' does not settle a {q['kind']} question owned by '{q.get('owner')}' — "
+                         "a developer preference is not evidence that the contract is correct; get the owner's answer, the "
+                         "contract documentation, or an observed response (keep it OPEN or DEFER it)")
+                continue
+            if q["kind"] not in EXTERNAL_KINDS and not (role_matches(ev["role"], q.get("owner")) or ev.get("authorized") is True):
+                e.append(f"'{ev['role']}' is not the question's owner ('{q.get('owner')}'); mark authorized: true only for "
+                         "someone entitled to decide it")
+                continue
+            qualifying.append(ev)
+        elif k in STRONG_KINDS:
+            errs = check_strong(ev, project)
+            if errs:
+                e += errs
+                continue
+            if q["kind"] in EXTERNAL_KINDS and k in ("VERIFIED", "PARTIAL") and not ev.get("owner_source"):
+                e.append(f"code in this repository ({ev.get('ref')}) shows what the app does, not what the "
+                         f"{q['kind']} guarantees — cite the owner's source/docs (owner_source: true) or an observed response")
+                continue
+            qualifying.append(ev)
+        else:
+            e.append(f"evidence kind must be HUMAN, VERIFIED, PARTIAL, TEST, or DOC (got {k})")
+    if decision:
+        d = find(data, decision)
+        if q["kind"] in EXTERNAL_KINDS:
+            e.append("a decision cannot settle what another system does — it can only choose how the app behaves while "
+                     "the question stays OPEN/DEFERRED")
+        elif not d or d.get("status") not in ("APPROVED", "IMPLEMENTED"):
+            e.append(f"decision {decision} is not an approved decision")
+        else:
+            qualifying.append({"kind": "DECISION", "ref": decision})
+    if not qualifying and not e:
+        e.append("no qualifying evidence")
+    return e
+
+
+def check_question(q, data=None):
+    e = []
+    if q.get("kind") not in QUESTION_KINDS:
+        e.append(f"kind must be one of {QUESTION_KINDS}")
+    if not _txt(q.get("question"), 15):
+        e.append("question must state the exact unanswered question")
+    if not _txt(q.get("owner"), 3):
+        e.append("owner is required: who can answer it (e.g. 'backend team', 'product owner')")
+    if not _txt(q.get("title"), 3):
+        e.append("title is required")
+    if q.get("status") not in Q_STATUSES:
+        e.append(f"status must be one of {Q_STATUSES}")
+    if q.get("status") == "ANSWERED" and not q.get("answer"):
+        e.append("ANSWERED without a recorded answer")
+    if q.get("status") == "DEFERRED" and not any(h.get("to") == "DEFERRED" and h.get("actor") == "developer" for h in q.get("history", [])):
+        e.append("DEFERRED without a recorded developer deferral")
+    if q.get("status") == "REJECTED" and not q.get("rejection"):
+        e.append("REJECTED without the evidence that the question does not apply")
+    return e
+
+
+def check_finding(f, data, project=None):
+    e = []
+    cls, disp = f.get("classification"), f.get("disposition")
+    if f.get("source") not in ("coderabbit", "system-review", "claude-fallback", "human-reviewer", "claude"):
+        e.append("source must be coderabbit | system-review | claude-fallback | human-reviewer | claude")
+    if not _txt(f.get("title"), 3):
+        e.append("title is required")
+    if cls not in FINDING_CLASSES:
+        return e + [f"classification must be one of {FINDING_CLASSES}"]
+    if disp not in ALLOWED_DISPOSITIONS[cls]:
+        e.append(f"{cls} findings can be {sorted(ALLOWED_DISPOSITIONS[cls])}, not {disp}")
+    if cls == "VALID" and f.get("kind") not in VALID_KINDS:
+        e.append(f"a VALID finding needs kind: {VALID_KINDS}")
+    ev = f.get("evidence") or []
+    strong = [x for x in ev if x.get("kind") in STRONG_KINDS and not check_strong(x, project)]
+    if cls == "FALSE_POSITIVE" and disp == "DISMISSED" and not strong:
+        e.append("dismissing a finding as FALSE_POSITIVE needs code (path:line), test, or documentation evidence that "
+                 "refutes it — disagreement or a preference is not evidence; keep it OPEN or DEFERRED")
+    if cls == "PREFERENCE" and disp == "LEFT_AS_IS" and not (strong or _txt(f.get("convention_ref"), 3)):
+        e.append("leaving a preference as is needs evidence that no enforced convention covers it (code refs showing "
+                 "the mixed pattern, or the conventions-profile entry as convention_ref)")
+    if disp == "FIXED" and not _txt(f.get("fix_ref"), 3):
+        e.append("FIXED needs fix_ref (path:line of the fix)")
+    if disp == "EXPLAINED" and not (_txt(f.get("explanation"), 15) and _txt(f.get("explained_in"), 3)):
+        e.append("EXPLAINED needs the explanation and where the reviewer will see it (explained_in: 'reviewer-notes' or path:line)")
+    if disp in ("DEFERRED", "LEFT_AS_IS") and not _txt(f.get("reason"), 10):
+        e.append(f"{disp} needs the reason")
+    if disp == "DEFERRED" and cls in ("VALID", "CONTRACT_QUESTION") and f.get("actor") != "developer":
+        e.append("deferring a valid finding or a contract question is the developer's call (actor: developer)")
+    if cls == "CONTRACT_QUESTION":
+        qid = f.get("question")
+        q = next((x for x in data.get("questions", []) if x["id"] == qid), None)
+        if not q:
+            e.append("a contract question needs its open-question record (question: Q-…; decision_records.py ask)")
+        elif disp in ("FIXED", "LEFT_AS_IS") and q["status"] != "ANSWERED":
+            e.append(f"{qid} is {q['status']} — the finding stays OPEN or DEFERRED until the question is answered with evidence")
+    return e
+
+
+def hist(rec, actor, event, **kw):
+    rec.setdefault("history", []).append({"at": now(), "actor": actor, "event": event, **{k: v for k, v in kw.items() if v is not None}})
+
+
+def find_q(data, qid):
+    return next((q for q in data["questions"] if q["id"] == qid), None)
+
+
+def cmd_ask(a):
+    data = load(a.file)
+    r = read_json(a.json)
+    q = {k: r.get(k) for k in ("title", "kind", "question", "context", "owner", "related", "raised_by", "evidence_so_far")}
+    q.update(id=next_id(data, "questions", "Q"), status="OPEN", created_at=now(), answer=None, history=[])
+    e = check_question(q)
+    if e:
+        return emit({"status": "invalid", "errors": e}, 1)
+    hist(q, r.get("raised_by") or "claude", "opened", status="OPEN")
+    data["questions"].append(q)
+    save(a.file, data)
+    return emit({"status": "ok", "id": q["id"], "state": "OPEN"})
+
+
+def cmd_answer(a):
+    data = load(a.file)
+    q = find_q(data, a.id)
+    if not q:
+        return emit({"status": "error", "reason": f"{a.id} not found"}, 1)
+    if q["status"] not in ("OPEN", "DEFERRED"):
+        return emit({"status": "refused", "reason": f"{a.id} is {q['status']}"}, 1)
+    ans = read_json(a.json)
+    e = answer_errors(q, ans, data, a.project)
+    if e:
+        hist(q, "claude", "answer-refused", reasons=e)
+        save(a.file, data)
+        return emit({"status": "refused", "id": a.id, "state": q["status"], "errors": e}, 1)
+    frm = q["status"]
+    q["answer"] = {**ans, "at": now()}
+    q["status"] = "ANSWERED"
+    hist(q, ans.get("recorded_by", "claude"), "status", **{"from": frm, "to": "ANSWERED"})
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "state": "ANSWERED"})
+
+
+def cmd_defer(a):
+    data = load(a.file)
+    q = find_q(data, a.id)
+    if not q:
+        return emit({"status": "error", "reason": f"{a.id} not found"}, 1)
+    if a.actor != "developer":
+        return emit({"status": "refused", "reason": "deferring a question is the developer's decision (--actor developer)"}, 1)
+    if q["status"] != "OPEN" or not _txt(a.reason, 10) or not _txt(a.via, 2):
+        return emit({"status": "refused", "reason": "only an OPEN question can be deferred, with --reason and --via"}, 1)
+    q["status"] = "DEFERRED"
+    hist(q, "developer", "status", **{"from": "OPEN", "to": "DEFERRED", "via": a.via, "note": a.reason})
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "state": "DEFERRED", "note": "still listed as open at the Review Gate and in the PR"})
+
+
+def cmd_reject_question(a):
+    data = load(a.file)
+    q = find_q(data, a.id)
+    if not q:
+        return emit({"status": "error", "reason": f"{a.id} not found"}, 1)
+    r = read_json(a.json)
+    ev = r.get("evidence") or []
+    errs = [m for x in ev for m in check_strong(x, a.project)]
+    if not _txt(r.get("reason"), 15) or not ev or errs:
+        return emit({"status": "refused", "reason": "rejecting a question needs the reason and code, test, or documentation "
+                     "evidence that it does not apply", "errors": errs}, 1)
+    frm = q["status"]
+    q["status"], q["rejection"] = "REJECTED", {**r, "at": now()}
+    hist(q, "claude", "status", **{"from": frm, "to": "REJECTED"})
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "state": "REJECTED"})
+
+
+def cmd_reopen(a):
+    data = load(a.file)
+    q = find_q(data, a.id)
+    if not q or not _txt(a.reason, 10):
+        return emit({"status": "refused", "reason": "unknown question or missing --reason"}, 1)
+    frm = q["status"]
+    q["status"] = "OPEN"
+    hist(q, a.actor, "status", **{"from": frm, "to": "OPEN", "note": a.reason})
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "state": "OPEN"})
+
+
+FINDING_FIELDS = ["source", "review_ref", "ref", "title", "severity", "original_severity", "classification", "kind",
+                  "disposition", "evidence", "fix_ref", "explanation", "explained_in", "question", "reason", "actor",
+                  "convention_ref", "options", "chosen"]
+
+
+def cmd_finding(a):
+    data = load(a.file)
+    r = {k: v for k, v in read_json(a.json).items() if k in FINDING_FIELDS}
+    r.setdefault("disposition", "OPEN")
+    e = check_finding(r, data, a.project)
+    if e:
+        return emit({"status": "invalid", "errors": e, "hint": "if the evidence is not there yet, record it OPEN or DEFERRED"}, 1)
+    r.update(id=next_id(data, "findings", "F"), created_at=now(), history=[])
+    hist(r, r.get("actor") or "claude", "recorded", classification=r["classification"], disposition=r["disposition"])
+    data["findings"].append(r)
+    save(a.file, data)
+    return emit({"status": "ok", "id": r["id"], "classification": r["classification"], "disposition": r["disposition"]})
+
+
+def cmd_finding_update(a):
+    data = load(a.file)
+    f = next((x for x in data["findings"] if x["id"] == a.id), None)
+    if not f:
+        return emit({"status": "error", "reason": f"{a.id} not found"}, 1)
+    patch = {k: v for k, v in read_json(a.json).items() if k in FINDING_FIELDS}
+    cand = {**f, **patch}
+    e = check_finding(cand, data, a.project)
+    if e:
+        return emit({"status": "invalid", "errors": e}, 1)
+    prev = {k: f.get(k) for k in patch if f.get(k) != patch[k]}
+    f.update(patch)
+    hist(f, patch.get("actor") or "claude", "updated", previous=prev or None)
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "classification": f["classification"], "disposition": f["disposition"]})
+
+
+def questions_md(data, statuses=None):
+    qs = [q for q in data.get("questions", []) if not statuses or q["status"] in statuses]
+    if not qs:
+        return "_No open questions recorded._"
+    L = ["| ID | Status | Question | Who can answer | Answer / evidence |", "|---|---|---|---|---|"]
+    for q in qs:
+        if q["status"] == "ANSWERED":
+            ans = q["answer"]
+            evs = "; ".join(f"[{x.get('kind')}] {x.get('ref') or x.get('source') or x.get('command')}" for x in ans.get("evidence") or [])
+            detail = f"{md_esc(ans.get('text'))} — {md_esc(evs or ans.get('decision'))}"
+        elif q["status"] == "DEFERRED":
+            d = next((h for h in reversed(q["history"]) if h.get("to") == "DEFERRED"), {})
+            detail = f"deferred by developer via {d.get('via')}: {md_esc(d.get('note'))}"
+        elif q["status"] == "REJECTED":
+            detail = "does not apply — " + md_esc(q["rejection"].get("reason"))
+        else:
+            refused = [h for h in q["history"] if h.get("event") == "answer-refused"]
+            detail = "**unanswered**" + (f" ({len(refused)} answer(s) refused: {md_esc(refused[-1]['reasons'][0])})" if refused else "")
+        L.append(f"| {q['id']} | **{q['status']}** | {md_esc(q['question'])} | {md_esc(q.get('owner'))} | {detail} |")
+    return "\n".join(L)
+
+
+def findings_md(data):
+    fs = data.get("findings", [])
+    if not fs:
+        return "_No review findings recorded._"
+    L = ["| ID | Source | Where | Finding | Classification | Disposition | Basis |", "|---|---|---|---|---|---|---|"]
+    for f in fs:
+        basis = f.get("fix_ref") or f.get("explained_in") or f.get("question") or f.get("convention_ref") or \
+            "; ".join(f"[{x.get('kind')}] {x.get('ref') or x.get('command') or x.get('source')}" for x in f.get("evidence") or []) or f.get("reason")
+        cls = f["classification"] + (f" ({f['kind']})" if f.get("kind") else "")
+        L.append(f"| {f['id']} | {f['source']}{' ' + f['review_ref'] if f.get('review_ref') else ''} | `{md_esc(f.get('ref'))}` | "
+                 f"{md_esc(f['title'])} | {cls} | **{f['disposition']}** | {md_esc(basis)} |")
+    return "\n".join(L)
+
+
+def cmd_questions(a):
+    data = load(a.file)
+    sts = set(x.upper() for x in a.status.split(",")) if a.status else None
+    print(questions_md(data, sts))
+    return 0
 
 
 # ---------------------------------------------------------------- presentation
@@ -436,6 +802,8 @@ def render_decision(d, full=True):
             if imp:
                 L.append(f"- *{x['id']} implications* — technical: {imp.get('technical', '—')}; behavioral: {imp.get('behavioral', '—')}")
     lists = [("Trade-offs", d.get("trade_offs")), ("Assumptions (unverified)", d.get("assumptions")), ("Risks", d.get("risks"))]
+    if d.get("changes_shared_behavior"):
+        lists.insert(0, ("Side effects for existing users", d.get("side_effects")))
     for name, items in lists:
         L.append(f"**{name}:** " + ("; ".join(items) if items else "none recorded"))
     ev = d.get("evidence") or []
@@ -502,6 +870,7 @@ def cmd_show(a):
 
 
 def report_md(data, check=None):
+    data.setdefault("questions", []); data.setdefault("findings", [])
     s = summary(data)
     L = ["# Engineering Decision Records", "",
          f"Total **{s['total']}** · proposed {s['proposed']} · under review {s['under_review']} · approved {s['approved']} · "
@@ -519,6 +888,10 @@ def report_md(data, check=None):
             L += [f"## {name}", ""] + ["\n\n".join(render_decision(d) for d in ds), ""]
     if not data["decisions"]:
         L.append("_No engineering decisions were recorded for this task._")
+    if data.get("questions"):
+        L += ["", "## Open-question ledger", "", questions_md(data)]
+    if data.get("findings"):
+        L += ["", "## Review findings and dispositions", "", findings_md(data)]
     return "\n".join(L).rstrip() + "\n"
 
 
@@ -574,11 +947,22 @@ def main():
     s = p("show"); s.add_argument("--ids"); s.add_argument("--status")
     s = p("report"); s.add_argument("--out")
     s = p("export"); s.add_argument("--format", required=True, choices=["json", "md"]); s.add_argument("--out")
+    s = p("ask"); s.add_argument("--json", required=True)
+    s = p("answer", "id"); s.add_argument("--json", required=True)
+    s = p("defer", "id"); s.add_argument("--actor", required=True, choices=["claude", "developer"]); s.add_argument("--via")
+    s.add_argument("--reason", required=True)
+    s = p("reject-question", "id"); s.add_argument("--json", required=True)
+    s = p("reopen", "id"); s.add_argument("--reason", required=True); s.add_argument("--actor", default="claude", choices=["claude", "developer"])
+    s = p("questions"); s.add_argument("--status")
+    s = p("finding"); s.add_argument("--json", required=True)
+    s = p("finding-update", "id"); s.add_argument("--json", required=True)
     a = ap.parse_args()
     try:
         return {"add": cmd_add, "revise": cmd_revise, "transition": cmd_transition, "human": cmd_human,
                 "supersede": cmd_supersede, "outcome": cmd_outcome, "validate": cmd_validate, "show": cmd_show,
-                "report": cmd_report, "export": cmd_export}[a.cmd](a)
+                "report": cmd_report, "export": cmd_export, "ask": cmd_ask, "answer": cmd_answer, "defer": cmd_defer,
+                "reject-question": cmd_reject_question, "reopen": cmd_reopen, "questions": cmd_questions,
+                "finding": cmd_finding, "finding-update": cmd_finding_update}[a.cmd](a)
     except (ValueError, KeyError, OSError) as e:
         return emit({"status": "error", "reason": f"{type(e).__name__}: {e}"}, 2)
 

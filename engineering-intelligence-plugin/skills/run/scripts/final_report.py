@@ -8,6 +8,8 @@ Also owns the only record the workflow didn't persist before: the plan and its e
   python3 -I final_report.py approve-plan <session-dir> --via "<gate>"      developer approved the plan (recorded, never inferred)
   python3 -I final_report.py step         <session-dir> <P-id> --status done|deviated|failed|skipped [--note] [--files ...] [--recovery]
   python3 -I final_report.py build        <session-dir> --out <export-dir> [--project <root>] [--title <t>]
+  python3 -I final_report.py pr           <session-dir> [--title <t>]       PR description with Reviewer Notes → <session-dir>/pr.md
+  python3 -I final_report.py pr-check     <session-dir> [--text <file>]     the PR text against the records and the diff
 
 Sources per section (missing → stated as unavailable, never filled in):
   1 Executive summary   assurance.json verdict · benchmark.json · workflow.json objective
@@ -34,6 +36,15 @@ import change_log as CL  # noqa: E402
 import decision_records as DR  # noqa: E402
 import diagram_lint as DL  # noqa: E402
 import evidence_ledger as EL  # noqa: E402
+
+PRESERVE = re.compile(r"\b(keeps?|kept|preserv\w*|unchanged|no (?:behaviou?r|functional) changes?|same behaviou?r|as before|"
+                      r"still (?:works|behaves) the same|retains?|untouched)\b", re.I)
+SCOPE_ONLY = re.compile(r"\b(?:only (?:affects?|applies(?: to)?|impacts?|matters for|changes? (?:it )?for)|(?:affects?|applies to|impacts?) only)\b", re.I)
+NOT_A_CLAIM = re.compile(r"\b(not chosen|not targeted|preserved:|rejected|alternative|option [A-Z]|instead of|no longer|chang(?:e|es|ed)|now|"
+                         r"when|if|unless|while|except)\b", re.I)  # scoped statements ("keeps X when Y") are not blanket claims
+ALL_PATHS = re.compile(r"\b(?:all|every|any) (?:submit |submission |entry |checkout |order )?(?:paths?|entry ?points?|callers?|routes?|ways?)\b|"
+                       r"fully guarded|can(?:not|'t) be bypassed|no way to (?:submit|place|pay|complete)", re.I)
+CHECK_CLAIM = re.compile(r"\b(no new (?:type|ts|typescript|lint|eslint) errors?|(?:tsc|type ?check|lint|eslint)\w* (?:passe?s|passed|clean))\b", re.I)
 
 RECORDS = ["changes.json", "workflow.json", "decisions.json", "audit.json", "evidence.json", "assurance.json", "benchmark.json"]
 
@@ -188,6 +199,15 @@ def build(session, out, project=None, title=None):
                 (f"; quality regressions to weigh: {', '.join(regressed_q)}" if regressed_q else "")
     if cl_open and final.startswith("READY"):
         final = f"NOT READY — {cl_open} change(s) without a sourced reason; explain or revert them"
+    gate_res = None
+    if (session / "impact.json").is_file():  # Feature / Fix system checks: the Review Gate's own verdict
+        import impact_check as IC
+        gate_res = IC.gate(session, "review")
+        J["review_gate"] = {k: gate_res[k] for k in ("readiness", "blockers", "warnings")}
+        if gate_res["blockers"] and final.startswith("READY"):
+            final = f"NOT READY — {len(gate_res['blockers'])} Review Gate blocker(s): " + "; ".join(gate_res["blockers"][:3])
+        elif gate_res["readiness"] == "READY WITH OPEN QUESTIONS" and final.startswith("READY FOR"):
+            final = "READY WITH OPEN QUESTIONS — " + ", ".join(q["id"] for q in gate_res["summary"]["open_questions"])
     J["final_recommendation"], J["verdict"] = final, verdict
 
     # 1
@@ -319,7 +339,11 @@ def build(session, out, project=None, title=None):
         md = subprocess.run(args, capture_output=True, text=True).stdout
         S.append(demote(re.sub(r"^# .*\n", "", md, count=1), 1))
     else:
-        S.append(unavailable("no audit.json"))
+        S.append(unavailable("no audit.json") if not (session / "impact.json").is_file() else
+                 "_No refactoring audit for this task; the system impact checks below apply._\n")
+    if (session / "impact.json").is_file():
+        import impact_check as IC
+        S.append(demote(IC.show_md(session), 0))
     # 8
     S.append("## 9. Verification Results\n")
     tests = [x for x in (led or {}).get("items", []) if x["type"] == "test"]
@@ -338,6 +362,27 @@ def build(session, out, project=None, title=None):
         missing = [f"{r['rule']}: {', '.join(r['missing_checks'])}" for r in assur["rules"] if r["missing_checks"]]
         S.append(f"- Checks not executed: {'; '.join(missing) or 'none identified'}")
     S.append("- Limitations: only checks run through the tools are counted; a test written but not run counts as not executed.\n")
+    import verify_baseline as VB
+    import conventions as CV
+    vb = VB.load(session)
+    if vb:
+        S.append("### Type check and lint against the baseline\n")
+        S.append(VB.show_md(vb))
+    cv = CV.load_profile(session)
+    if cv:
+        S.append("### Project conventions\n")
+        S.append(CV.show_md(cv))
+        last = (cv.get("checks") or [None])[-1]
+        if last:
+            S.append(f"Last check: {len(last['violations'])} violation(s)" + (": " + "; ".join(f"{v['ref']} {v['convention']} ({v['level']})" for v in last["violations"][:10]) if last["violations"] else "") + "\n")
+    imp_j = jload(session / "impact.json")
+    if imp_j and imp_j.get("reviews"):
+        S.append("### Final reviews\n")
+        S.append("| Review | Reviewer | Independent | Scope | Diff | Findings | Limitation |\n|---|---|---|---|---|---|---|")
+        for r in imp_j["reviews"]:
+            S.append(f"| {r['id']} | {r['reviewer']} | {'yes' if r['independent'] else 'no'} | {r['scope']}{' (fresh)' if r.get('fresh') else ''} | "
+                     f"`{r['diff_hash']}` | {len(r['findings'])} | {r.get('limitation') or '—'} |")
+        S.append("")
     # 9
     S.append("## 10. Evidence Ledger\n")
     if led:
@@ -384,6 +429,9 @@ def build(session, out, project=None, title=None):
     if not crit:
         S.append("- none")
     review = [f"{f['id']} ({f['classification']})" for f in fs if f.get("needs_review")] + [f"{d['id']} decision {d['status']}" for d in open_dec]
+    if gate_res:
+        review += [f"Review Gate: {b}" for b in gate_res["blockers"]]
+        review += [f"{q['id']} {q['status']}: {q['question']}" for q in gate_res["summary"]["open_questions"]]
     if cl_res:
         review += [f"{e} (no sourced reason)" for e in cl_res["unexplained_entries"]]
         review += [f"{h['file']}:{h['lines']} (changed, no entry)" for h in cl_res["uncovered_hunks"]]
@@ -422,6 +470,135 @@ def build(session, out, project=None, title=None):
     return {"status": "ok", "out": str(out), "verdict": verdict, "final_recommendation": final,
             "report_html": (out / "report.html").as_uri(), "unexplained_changes": cl_open,
             "files": sorted(p.name for p in out.iterdir())}
+
+
+def _records(session):
+    session = pathlib.Path(session)
+    import impact_check as IC
+    import verify_baseline as VB
+    imp = jload(session / "impact.json")
+    dec = DR.load(session / "decisions.json") if (session / "decisions.json").is_file() else {"decisions": [], "questions": [], "findings": []}
+    ver = VB.load(session)
+    return imp, dec, ver, (VB.compare(ver) if ver else {})
+
+
+def _sentences(text):
+    return [x.strip() for x in re.split(r"(?<=[.!?])\s+|\n+", text) if x.strip()]
+
+
+def _mentions(sentence, s):
+    names = [s["name"], *(s.get("aliases") or []), *(s.get("labels") or [])]
+    low = sentence.lower()
+    return any(n and n.lower() in low for n in names)
+
+
+def pr_markdown(session, title=None):
+    """PR description: summary, changes, Reviewer Notes (behavior changes, shared/contract changes, guarded paths,
+    decisions and rejected alternatives, explanations, limitations), open questions, verification. Projection only."""
+    session = pathlib.Path(session)
+    imp, dec, ver, cmp_ = _records(session)
+    wf = jload(session / "workflow.json")
+    changes = jload(session / "changes.json")
+    L = [f"## {title or (wf or {}).get('plan', {}).get('objective') or 'Summary'}", ""]
+    for c in (imp or {}).get("criteria", []):
+        L.append(f"- {c['id']}: {c['text']}")
+    if changes and changes.get("entries"):
+        L += ["", "### Changes", ""]
+        for e in changes["entries"]:
+            why = e.get("why") or {}
+            L.append(f"- {e['change'].lower()} {e['what']} (`{e['where']}`)" + (f" — {why.get('text')}" if why.get("text") else " — ⚠ no sourced reason"))
+    L += ["", "## Reviewer Notes", ""]
+    sym = [s for s in (imp or {}).get("symbols", []) if s.get("changes_contract", True)]
+    if sym:
+        L += ["**Behavior and contract changes**", ""]
+        for s in sym:
+            L.append(f"- `{s['name']}` ({s['kind']}, `{s['file']}`): before — {s['before']}; now — {s['after']}.")
+            t = [c["ref"] for c in s.get("consumers") or [] if c.get("targeted")]
+            n = [c for c in s.get("consumers") or [] if c.get("targeted") is False]
+            if len(s.get("discovered") or {}) > 1 or n:
+                L.append(f"  - Shared: used in {len(s.get('discovered') or {})} file(s). Targeted by the ticket: {', '.join(f'`{x}`' for x in t) or 'none'}.")
+            for c in n:
+                L.append(f"  - Not targeted: `{c['ref']}` — {c.get('impact')}" + (f" (check: {c['check']})" if c.get("check") else ""))
+            if s.get("behavior_to_preserve"):
+                L.append(f"  - Preserved: {'; '.join(s['behavior_to_preserve'])}")
+        L.append("")
+    for g in (imp or {}).get("guards", []):
+        eps = g.get("entry_points") or []
+        L.append(f"**Guard** `{g['guard']}` before `{g['action']}` — {len(eps)} entry point(s):")
+        for ep in eps:
+            mark = {"yes": "enforced", "no": "NOT enforced", "unknown": "unknown"}.get(ep.get("enforced"), "?")
+            L.append(f"- {ep.get('chain')} (`{ep.get('ref')}`): {mark}" + (f" — {ep['evidence']}" if ep.get("evidence") else ""))
+        L.append(f"- Coverage: {g.get('coverage')}." + (" Limits: " + "; ".join(g.get("limitations") or []) if g.get("limitations") else ""))
+        L.append("")
+    ds = [d for d in dec["decisions"] if d["status"] in ("APPROVED", "IMPLEMENTED")]
+    if ds:
+        L += ["**Decisions**", ""]
+        for d in ds:
+            alt = {a["id"]: a for a in d["alternatives"]}
+            L.append(f"- {d['id']} {d['title']}: {alt.get(d['selected'], {}).get('name', d['selected'])} — {d['rationale']}")
+            for a in d["alternatives"]:
+                if a.get("verdict") == "rejected":
+                    L.append(f"  - Not chosen: {a['name']} — {a.get('reason')}")
+        L.append("")
+    ex = [f for f in dec.get("findings", []) if f.get("disposition") == "EXPLAINED"]
+    if ex:
+        L += ["**Why it is done this way**", ""] + [f"- `{f.get('ref')}` {f['title']}: {f['explanation']}" for f in ex] + [""]
+    lim = []
+    for s in (imp or {}).get("symbols", []):
+        lim += [f"`{c['ref']}`: {c['impact']}" for c in s.get("consumers") or [] if (c.get("impact") or "").upper().startswith("UNKNOWN")]
+    lim += [f"{n}: {r['status']}" + (f" — {r['reason']}" if r.get("reason") else "") for n, r in cmp_.items() if r["status"] not in ("PASS",)]
+    if lim:
+        L += ["**Known limitations**", ""] + [f"- {x}" for x in lim] + [""]
+    L += ["## Open questions", ""]
+    oq = [q for q in dec.get("questions", []) if q["status"] in ("OPEN", "DEFERRED")]
+    of = [f for f in dec.get("findings", []) if f.get("disposition") in ("OPEN", "DEFERRED")]
+    L += [f"- **{q['id']} {q['status']}** — {q['question']} (who can answer: {q.get('owner')})" for q in oq]
+    L += [f"- **{f['id']} {f['disposition']}** ({f['classification']}) `{f.get('ref')}` — {f['title']}" for f in of]
+    if not oq and not of:
+        L.append("- none")
+    L += ["", "## Verification", ""]
+    if cmp_:
+        for n, r in cmp_.items():
+            L.append(f"- {n}: **{r['status']}** — {r['existing']} existing, {r['new']} new, {r['resolved']} resolved, {r['changed']} changed"
+                     + (f" ({r['reason']})" if r.get("reason") else ""))
+    else:
+        L.append("- type check / lint: not recorded")
+    return "\n".join(L).rstrip() + "\n"
+
+
+def pr_check(session, text):
+    """Problems in a PR description: missing Reviewer Notes, open questions not listed, and claims the records contradict."""
+    imp, dec, ver, cmp_ = _records(session)
+    P = []
+    if not re.search(r"^#+\s*Reviewer Notes", text, re.M | re.I):
+        P.append("no 'Reviewer Notes' section")
+    for q in dec.get("questions", []):
+        if q["status"] in ("OPEN", "DEFERRED") and q["id"] not in text:
+            P.append(f"{q['id']} ({q['status']}) is not listed — open questions must appear in the PR")
+    for f in dec.get("findings", []):
+        if f.get("disposition") in ("OPEN", "DEFERRED") and f["id"] not in text:
+            P.append(f"finding {f['id']} ({f['disposition']}) is not listed")
+    syms = [s for s in (imp or {}).get("symbols", []) if s.get("changes_contract", True)]
+    affected = [(s, c) for s in syms for c in s.get("consumers") or []
+                if c.get("targeted") is False and not (c.get("impact") or "").lower().startswith("none")]
+    open_guards = [g for g in (imp or {}).get("guards", []) if g.get("unguarded") or g.get("unknown") or g.get("coverage") != "COMPLETE (static search; see limitations)"]
+    for sent in _sentences(text):
+        if PRESERVE.search(sent):
+            for s in syms:
+                if _mentions(sent, s) and not NOT_A_CLAIM.search(sent):
+                    P.append(f"'{sent[:120]}' reads as preserved, but `{s['name']}` changed: {s['before']} → {s['after']}")
+        if SCOPE_ONLY.search(sent) and affected:
+            P.append(f"'{sent[:120]}' limits the scope, but consumers outside the ticket are affected: " +
+                     "; ".join(f"{c['ref']} — {c.get('impact')}" for s, c in affected[:4]))
+        if ALL_PATHS.search(sent) and open_guards:
+            g = open_guards[0]
+            P.append(f"'{sent[:120]}' claims every path, but the entry-point analysis for `{g['action']}` is "
+                     f"{g.get('coverage')} (unguarded: {', '.join(g.get('unguarded') or []) or 'none'}; unknown: {', '.join(g.get('unknown') or []) or 'none'})")
+        if CHECK_CLAIM.search(sent) and not re.search(r"\bnot\b", sent, re.I):
+            bad = [f"{n} {r['status']}" for n, r in cmp_.items() if r["status"] != "PASS"]
+            if bad or not cmp_:
+                P.append(f"'{sent[:120]}' — the baseline comparison does not support it ({', '.join(bad) or 'no comparison recorded'})")
+    return {"passed": not P, "problems": list(dict.fromkeys(P))}
 
 
 def slug(h):
@@ -512,8 +689,19 @@ def main():
     s.add_argument("--files", nargs="+"); s.add_argument("--recovery")
     s = sp.add_parser("build"); s.add_argument("session"); s.add_argument("--out", required=True); s.add_argument("--project")
     s.add_argument("--title")
+    s = sp.add_parser("pr"); s.add_argument("session"); s.add_argument("--title")
+    s = sp.add_parser("pr-check"); s.add_argument("session"); s.add_argument("--text")
     a = ap.parse_args()
     try:
+        if a.action == "pr":
+            out = pathlib.Path(a.session) / "pr.md"
+            out.write_text(pr_markdown(a.session, a.title), encoding="utf-8")
+            chk = pr_check(a.session, out.read_text(encoding="utf-8"))
+            return emit({"status": "ok", "out": str(out), "check": chk})
+        if a.action == "pr-check":
+            text = pathlib.Path(a.text or (pathlib.Path(a.session) / "pr.md")).read_text(encoding="utf-8")
+            res = pr_check(a.session, text)
+            return emit({"status": "ok" if res["passed"] else "problems", **res}, 0 if res["passed"] else 1)
         if a.action == "plan":
             return cmd_plan(a)
         if a.action == "approve-plan":

@@ -108,6 +108,16 @@ Nothing has been committed or pushed. Committing and pushing are the developer's
 PRESERVED {{n}} · CHANGED {{n}} (intentional {{n}}) · MISSING {{n}} · ADDED {{n}} · UNKNOWN {{n}}
 AFTER diagrams drawn from final snapshot `{{snapshot id}}`: {{YES — render_workspace.py ok (no stale_after / broken_after_links / unaccounted_nodes) | NO — <reason>}}
 
+## 10a. System Checks (Feature / Fix)
+
+{{impact_check.py show: changed symbols → consumers → before/after; guarded actions → entry points; open questions}}
+{{verify_baseline.py show: existing · new · resolved · changed}}
+{{impact_check.py gate --stage review: readiness and blockers}}
+
+## 10b. Reviewer Notes (as in the PR description)
+
+{{final_report.py pr → Reviewer Notes and Open questions sections of <session-dir>/pr.md, after pr-check passed}}
+
 ## 11. Remaining Risks
 | Risk | Severity | Why it remains | Suggested follow-up |
 |------|----------|----------------|---------------------|

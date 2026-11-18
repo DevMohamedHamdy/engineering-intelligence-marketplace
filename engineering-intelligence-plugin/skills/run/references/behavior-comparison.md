@@ -1,6 +1,6 @@
 # Workflow 9 — Legacy vs Refactored Behavior Comparison
 
-**Load when:** the user asks whether a new implementation preserves the behavior of an old one (migration, rewrite, refactor, port to another platform/framework), or as G3 verification in `architecture-strategy.md`.
+**Load when:** the user asks whether a new implementation preserves the behavior of an old one (migration, rewrite, refactor, port to another platform/framework), as G3 verification in `architecture-strategy.md`, and for **Feature tasks that change an existing symbol's behavior** — there, the paths the ticket does not target are the behaviors to preserve (`system-impact.md` §2).
 
 **Mode:** read-only. **Output:** `templates/refactoring-comparison.md` (summary) + `templates/behavior-mapping.md` (detailed map).
 

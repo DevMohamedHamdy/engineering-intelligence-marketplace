@@ -24,18 +24,18 @@ The goal: code that follows current best practice for the project's stack, in th
 - **Discover versions first** (manifest / lockfile: `package.json`, `build.gradle`, `Podfile.lock`, `pubspec.yaml`, `go.mod`, `requirements.txt`, …). "Latest" means the current recommended way **for those versions** — never upgrade a dependency to use a newer API without approval (rule 5).
 - Use the currently recommended APIs and patterns; never introduce deprecated or legacy ones (e.g. class components where the project uses hooks, deprecated lifecycle methods, removed/renamed APIs, legacy navigation or state patterns the project has moved away from).
 - **When unsure whether an API or pattern is current, check — don't guess.** Use, in order: the library's own types/docs in the project (`node_modules`, SDK sources), official docs or changelog / migration guide for that exact version (WebSearch / docs MCP if available). Mention the source in one line when it drove a decision.
-- Follow the project's own conventions first (structure, naming, state management, styling, error handling, tests). If a project convention is outdated, follow it anyway in the change and note the modernization as a follow-up — don't mix two styles in one file.
-- Respect the project's lint, formatter, and type-checker settings; the change must not add new warnings or type errors.
+- Follow the project's own conventions first (structure, naming, state management, styling, error handling, tests). If a project convention is outdated, follow it anyway in the change and note the modernization as a follow-up — don't mix two styles in one file. The session's conventions profile (`system-impact.md` §6) decides what the convention is: an ENFORCED convention wins over the nearest neighbor (don't copy an unscaled style, a Figma comment, or a direct API call the team has asked to avoid); ADVISORY items are not rules.
+- Respect the project's lint, formatter, and type-checker settings; the change must not add new warnings or type errors — measured against the baseline taken before the first edit over the whole project output, not just the changed files (`verify_baseline.py`).
 
 ## 3. Non-negotiables in every change
 
-- **Types:** precise types, no `any` / unchecked casts / force-unwraps to silence the compiler.
+- **Types:** precise types, no `any` / `unknown` / unchecked casts / force-unwraps to silence the compiler; a wrong existing type is corrected to the precise one, not loosened (the Review Gate flags a type loosened to `unknown` / `any`).
 - **Errors:** handle failures where they can occur (network, I/O, parsing); never swallow errors silently; show the user a sensible state (loading / empty / error) where the UI depends on async data.
 - **Async & resources:** await or deliberately handle every promise/future; clean up subscriptions, listeners, timers; avoid race conditions and state updates after unmount/dispose.
 - **Security:** validate input at trust boundaries, no secrets in code, no sensitive data in logs, secure storage for tokens/PII.
 - **Performance:** no obvious waste (unneeded re-renders/recomputation, N+1 calls, blocking the main/UI thread, unbounded lists without virtualization/pagination) — but no premature optimization.
 - **Accessibility (UI):** labels/roles for interactive elements, sufficient touch targets, text that scales.
-- **Naming & comments:** names say what things are; comments explain *why*, not *what*. No commented-out code, no stray `console.log`/debug prints, no TODOs without a ticket.
+- **Naming & comments:** names say what things are; comments explain *why*, not *what* — one or two lines where the reason isn't obvious from the code (a synthetic row, a deliberate ref-based re-check); longer reasoning goes in the PR's Reviewer Notes. No commented-out code, no stray `console.log`/debug prints, no TODOs without a ticket, no design-tool references unless the conventions profile allows them.
 
 ## 4. Where it is enforced
 

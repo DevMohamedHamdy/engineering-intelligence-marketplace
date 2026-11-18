@@ -27,7 +27,7 @@
 
 ## Step 4 — Regression analysis for a change
 1. Determine the change set (diff/branch/file list).
-2. Compute impact radius: direct callers/importers of changed symbols (search), shared utilities, public interfaces, config, schemas/migrations, storage keys, API contracts, analytics events.
+2. Compute impact radius: direct callers/importers of changed symbols (search), shared utilities, public interfaces, config, schemas/migrations, storage keys, API contracts, analytics events. Feature / Fix: take it from the consumer records (`impact_check.py show`) — every affected consumer **outside the ticket** needs a regression test or a manual check (its `check`), e.g. "no saved card, COD available: tap Add New opens Add Card".
 3. For each impacted behavior: existing coverage (Step 2), likelihood of break, severity if broken.
 4. Rank risks; propose the **smallest set** of tests (or manual checks) that cover the top risks. Describe each test: name, level (unit/integration/e2e), setup, action, assertion — matching the project's existing test style.
 
