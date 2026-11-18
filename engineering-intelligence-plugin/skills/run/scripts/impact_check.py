@@ -45,9 +45,8 @@ TASKS = ("feature", "fix")
 KINDS = ("component", "function", "hook", "utility", "prop", "interface", "type", "handler", "condition", "default",
          "guard", "query", "constant", "style", "other")
 ENFORCED = ("yes", "no", "unknown")
-EVERY_PATH = re.compile(r"\b(by any path|any path|every path|all paths|any way|any route|never|must not|mustn'?t|"
-                        r"cannot|can'?t|can not|may not|under no circumstances|no way to|not (be )?possible|"
-                        r"prevent(s|ed)?|block(s|ed)?|disallow(s|ed)?|not allowed|regardless)\b", re.I)
+EVERY_PATH = re.compile(r"\b(by any path|any path|every path|all paths|any way|any route|from anywhere|never|must not|"
+                        r"mustn'?t|under no circumstances|no way to|not (?:be )?possible|not allowed|regardless of)\b", re.I)
 LIMITATIONS = ["static text search by name: callbacks passed on under another name, dynamic dispatch, navigation "
                "params, deep links, native modules, and generated code are not discovered"]
 REGISTRY = pathlib.Path(tempfile.gettempdir()) / "ei-gate"
@@ -62,7 +61,30 @@ NAME_AT = [re.compile(p) for p in (
     r"^\s*([A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s*)?(?:function|\()",
 )]
 JSX_PROP = re.compile(r"([A-Za-z_$][\w$]*)\s*=\s*\{[^{}]*$")
-PROP_SET = re.compile(r"(?:^|[\s<(])([A-Za-z_$][\w$]*)\s*=\s*(\{.*?\}|\"[^\"]*\"|'[^']*')")
+PROP_SET = re.compile(r"(?:^|[\s<(])([A-Za-z_$][\w$]*)=(?=[{\"'])")  # JSX attribute: no spaces around =
+
+
+def jsx_props(lines):
+    """{prop: value} for JSX attributes written as prop={…} / prop="…" (balanced braces), not plain assignments."""
+    out = {}
+    for l in lines:
+        st = l.strip()
+        if re.match(r"(const|let|var|return|if|export|import)\b", st):
+            continue
+        for m in PROP_SET.finditer(l):
+            i, ch = m.end(), l[m.end()]
+            if ch == "{":
+                depth, j = 0, i
+                while j < len(l):
+                    depth += {"{": 1, "}": -1}.get(l[j], 0)
+                    if depth == 0:
+                        break
+                    j += 1
+                out[m.group(1)] = l[i:j + 1]
+            else:
+                end = l.find(ch, i + 1)
+                out[m.group(1)] = l[i:end + 1] if end > 0 else l[i:]
+    return out
 LOOSE_TYPE = re.compile(r"(?::\s*(?:unknown|any)\b|<\s*(?:unknown|any)\s*>|\bas\s+(?:unknown|any)\b|Promise<\s*(?:unknown|any)\s*>)")
 SCOPES = ("keep", "global", "conditional")
 
@@ -190,17 +212,54 @@ def enclosing(project, path, line, text=None):
     return best
 
 
+def exported_names(text, path=""):
+    """Names a module exposes: `export …`, `export default X`, `export {…}`, `module.exports`; Python: public top-level defs."""
+    if path.endswith(".py"):
+        return set(re.findall(r"^(?:async\s+)?(?:def|class)\s+([A-Za-z]\w*)", text, re.M)) | \
+            set(re.findall(r"^([A-Za-z]\w*)\s*=", text, re.M))
+    names = set(re.findall(r"^export\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|type|interface|enum)\s+([\w$]+)", text, re.M))
+    names |= set(re.findall(r"^export\s+default\s+([\w$]+)\s*;?\s*$", text, re.M))
+    names |= set(re.findall(r"^export\s+default\s+(?:React\.)?(?:memo|forwardRef)\(\s*([\w$]+)", text, re.M))
+    for grp in re.findall(r"^export\s*\{([^}]*)\}\s*;?\s*$", text, re.M):
+        names |= {x.split(" as ")[0].strip() for x in grp.split(",") if x.strip()}
+    for grp in re.findall(r"module\.exports\s*=\s*\{([^}]*)\}", text):
+        names |= {x.split(":")[0].strip() for x in grp.split(",") if x.strip()}
+    names |= set(re.findall(r"(?:module\.)?exports\.([\w$]+)\s*=", text))
+    return names
+
+
+def read(project, path):
+    try:
+        return (pathlib.Path(project) / path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def discover_consumers(project, name, search=None, defining=None):
+    """Files that use the symbol. A symbol its file doesn't export has no consumers outside that file. An exported one
+    is consumed by files that import / require it by name (same-named local variables elsewhere are not consumers)."""
     terms = list(dict.fromkeys([*(search or []), name]))
-    files, def_files = {}, {defining} if defining else set()
-    for f, ln, text in grep(project, terms):
-        if any(is_definition(text, t) for t in terms) and (not defining or f == defining):
-            def_files.add(f)
+    hits = grep(project, terms)
+    if not defining:
+        defs = sorted({f for f, ln, t in hits if any(is_definition(t, x) for x in terms)})
+        defining = defs[0] if len(defs) == 1 else None
+    exported = bool(defining) and any(t in exported_names(read(project, defining), defining) for t in terms)
+    by_file = {}
+    for f, ln, text in hits:
+        by_file.setdefault(f, []).append((ln, text))
+    files = {}
+    for f, rows in by_file.items():
+        if f == defining:
+            rows = [(ln, t) for ln, t in rows if not any(is_definition(t, x) for x in terms) and not is_import(t)]
+        elif defining and not exported:
             continue
-        kind = "import" if is_import(text) else "use"
-        files.setdefault(f, []).append({"ref": f"{f}:{ln}", "kind": kind, "text": text.strip()[:160]})
-    return {"symbol": name, "terms": terms, "files": {f: v for f, v in sorted(files.items())},
-            "consumer_files": sorted(f for f, v in files.items() if f not in def_files or any(x["kind"] == "use" for x in v))}
+        elif not any(is_import(t) for ln, t in rows):
+            continue  # mentions the name but never imports it: a local namesake
+        if rows:
+            files[f] = [{"ref": f"{f}:{ln}", "kind": "import" if is_import(t) else "use", "text": t.strip()[:160]} for ln, t in rows]
+    consumer = sorted(f for f, v in files.items() if f != defining or any(x["kind"] == "use" for x in v))
+    return {"symbol": name, "terms": terms, "defining": defining, "exported": exported,
+            "files": {f: v for f, v in sorted(files.items())}, "consumer_files": consumer}
 
 
 def discover_callers(project, action, depth=2, defining=None):
@@ -299,6 +358,8 @@ def check_symbol(rec, project):
             missing.append(rec["file"])
         for f in missing:
             e.append(f"consumer not classified: {f} ({', '.join(rec['discovered'].get(f, [])[:4])})")
+        if rec.get("behavior_to_preserve") is not None and not isinstance(rec["behavior_to_preserve"], list):
+            e.append("behavior_to_preserve must be a list of behaviors")
         untargeted = [c for c in cons if c.get("targeted") is False]
         if untargeted and not rec.get("behavior_to_preserve"):
             e.append("behavior_to_preserve is required when consumers outside the ticket exist")
@@ -410,6 +471,7 @@ def detect(session, project, only=None):
     for s in imp["symbols"]:
         recorded |= {s["name"], *(s.get("aliases") or [])}
     modified, props, loosened = {}, [], []
+    internal = {}
     for f, d in CL.current_diff(data, session).items():
         if d["generated"] or d["status"] != "modified" or (only and f != only):
             continue
@@ -419,30 +481,50 @@ def detect(session, project, only=None):
         new_p = pathlib.Path(data["project"]) / f
         new = new_p.read_text(encoding="utf-8", errors="replace") if new_p.is_file() else ""
         ol, nl = old.splitlines(), new.splitlines()
+        exp = exported_names(old, f)
+        fns = [x for x in functions(project, f, old) if x[0]]
+        rem_all, add_all, first_ref = {}, {}, {}
         for h in d["hunks"]:
             lo, hi = BA.hunk_span(h)
             owners = set()
             for ln in range(lo, hi + 1):
                 enc = enclosing(project, f, ln, old)
-                if enc:
-                    modified.setdefault(enc[0], set()).add(f"{f}:{enc[1]}")
-                    owners.add(enc[0])
+                if not enc:
+                    continue
+                # report the exported symbol that contains the change; a file-local helper's consumers are its own file
+                outer = [x for x in fns if x[0] in exp and x[1] <= ln <= x[2]]
+                if enc[0] in exp:
+                    owner = enc
+                elif outer:
+                    owner = max(outer, key=lambda x: x[2] - x[1])
+                else:
+                    internal.setdefault(enc[0], set()).add(f"{f}:{enc[1]}")
+                    continue
+                modified.setdefault(owner[0], set()).add(f"{f}:{owner[1]}")
+                owners.add(owner[0])
             removed = ol[h["old_start"] - 1:h["old_start"] - 1 + h["old_len"]] if h["old_len"] else []
             added = nl[h["new_start"] - 1:h["new_start"] - 1 + h["new_len"]] if h["new_len"] else []
-            before = {m.group(1): m.group(2) for l in removed for m in PROP_SET.finditer(l)}
-            after = {m.group(1): m.group(2) for l in added for m in PROP_SET.finditer(l)}
-            for k, v in before.items():
-                if k in ("key", "style", "testID"):
-                    continue
-                if k not in after:
-                    props.append({"prop": k, "change": "removed", "before": v, "ref": f"{f}:{h['old_start']}", "symbols": sorted(owners)})
-                elif after[k] != v:
-                    props.append({"prop": k, "change": "changed", "before": v, "after": after[k], "ref": f"{f}:{h['new_start']}", "symbols": sorted(owners)})
+            key = tuple(sorted(owners))
+            for k, v in jsx_props(removed).items():
+                rem_all.setdefault((key, k), v)
+                first_ref.setdefault((key, k), f"{f}:{h['old_start']}")
+            for k, v in jsx_props(added).items():
+                add_all.setdefault((key, k), v)
             if any(LOOSE_TYPE.search(l) for l in added) and not any(LOOSE_TYPE.search(l) for l in removed) and removed:
                 loosened.append({"ref": f"{f}:{h['new_start']}", "before": " ".join(x.strip() for x in removed)[:160],
                                  "after": " ".join(x.strip() for x in added)[:160]})
+        # props compared per owner across all hunks of the file, so a prop that moved isn't "removed"
+        for (key, k), v in rem_all.items():
+            if k in ("key", "style", "testID"):
+                continue
+            after_v = add_all.get((key, k))
+            if after_v is None:
+                props.append({"prop": k, "change": "removed", "before": v, "ref": first_ref[(key, k)], "symbols": list(key)})
+            elif after_v != v:
+                props.append({"prop": k, "change": "changed", "before": v, "after": after_v, "ref": first_ref[(key, k)], "symbols": list(key)})
     out = [{"name": n, "defined_at": sorted(v)} for n, v in sorted(modified.items())]
     return {"available": True, "modified": out, "unrecorded": [x for x in out if x["name"] not in recorded],
+            "internal_only": [{"name": n, "defined_at": sorted(v)} for n, v in sorted(internal.items())],
             "prop_changes": props, "loosened_types": loosened}
 
 
@@ -451,21 +533,27 @@ def detect(session, project, only=None):
 def cmd_start(a):
     project = pathlib.Path(a.project).resolve()
     session = pathlib.Path(a.session).resolve()
-    session.mkdir(parents=True, exist_ok=True)
     if project in session.parents or project == session:
         return emit({"status": "refused", "reason": "the session folder must be outside the project"}, 1)
+    rc, _ = BM.git(project, "rev-parse", "--is-inside-work-tree")
+    if rc:
+        return emit({"status": "refused", "reason": "not a git repository — consumer and entry-point discovery need "
+                     "`git grep`; these checkpoints are UNAVAILABLE here (say so at the Plan Gate)"}, 1)
+    session.mkdir(parents=True, exist_ok=True)
     p = path_of(session)
     data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
     if not data or data.get("project") != str(project):
         data = {"schema": SCHEMA, "project": str(project), "task": a.task, "started_at": now(), "criteria": [],
                 "symbols": [], "guards": [], "declarations": {}, "reviews": [], "gates": {}, "log": []}
     data["task"] = a.task
+    data["gates"], data["edits_allowed"] = {}, False  # a new start re-arms the edit guard
     data["log"].append({"at": now(), "event": "start", "task": a.task})
     save(session, data)
     REGISTRY.mkdir(exist_ok=True)
     registry_file(project).write_text(json.dumps({"project": str(project), "session": str(session), "task": a.task,
                                                   "started_at": now()}), encoding="utf-8")
-    return emit({"status": "ok", "impact": str(p), "edit_guard": "project edits are held until `gate --stage plan` passes"})
+    return emit({"status": "ok", "impact": str(p), "edit_guard": "project edits are held until `gate --stage plan` passes; "
+                 "run `finish` when the task ends, is cancelled, or is abandoned"})
 
 
 def cmd_finish(a):
@@ -586,6 +674,10 @@ def cmd_review(a):
         errs.append("the final CodeRabbit review must be a fresh full-diff run (fresh: true)")
     if not isinstance(r.get("findings"), list):
         errs.append("findings must be a list (empty when the reviewer reported none)")
+    else:
+        ids = [f.get("id") for f in r["findings"]]
+        if not all(ids) or len(set(ids)) != len(ids):
+            errs.append("every finding needs a unique id (its disposition refers to RV-…/<id>)")
     if errs:
         return emit({"status": "invalid", "errors": errs}, 1)
     rec = {"id": next_id(data["reviews"], "RV"), "at": now(), "reviewer": r["reviewer"], "scope": "full-diff",
@@ -603,7 +695,7 @@ def cmd_review(a):
 
 # ---------------------------------------------------------------- gate
 
-def gate(session, stage):
+def gate(session, stage, persist=True):
     import change_log as CL
     import conventions as CV
     import verify_baseline as VB
@@ -712,9 +804,11 @@ def gate(session, stage):
                 elif r["status"] in ("NO AFTER RUN", "NO BASELINE", "NOT COMPARABLE"):
                     B.append(f"{n}: {r['status']} — run the same check after the last change")
                 elif r["status"] == "NOT RUN":
-                    W.append(f"{n}: NOT RUN — {r.get('reason')}")
+                    base_ran = (ver["checks"][n].get("baseline") or {}).get("ran")
+                    (B if base_ran else W).append(f"{n}: NOT RUN — {r.get('reason')}" + (
+                        " — the baseline ran, so the same check must run after the change" if base_ran else ""))
         if conv:
-            chk = CV.check(session, project, conv)
+            chk = CV.check(session, project, conv, persist=persist)
             S["conventions"] = {"violations": len(chk["violations"])}
             for v in chk["violations"]:
                 msg = f"convention {v['convention']} ({v['level']}) at {v['ref']}: {v['message']}"
@@ -766,8 +860,11 @@ def gate(session, stage):
         ("CHECKPOINT PASSED" if passed else "CHECKPOINT INCOMPLETE")
     res = {"stage": stage, "passed": passed, "readiness": readiness, "blockers": B, "warnings": W, "summary": S,
            "at": now()}
-    data["gates"][stage] = {"passed": passed, "at": res["at"], "blockers": len(B)}
-    save(session, data)
+    if persist:
+        data["gates"][stage] = {"passed": passed, "at": res["at"], "blockers": len(B)}
+        if stage == "plan" and passed:
+            data["edits_allowed"] = True  # stays allowed if a later re-check finds something new
+        save(session, data)
     return res
 
 

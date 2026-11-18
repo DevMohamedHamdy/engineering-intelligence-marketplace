@@ -202,7 +202,7 @@ def build(session, out, project=None, title=None):
     gate_res = None
     if (session / "impact.json").is_file():  # Feature / Fix system checks: the Review Gate's own verdict
         import impact_check as IC
-        gate_res = IC.gate(session, "review")
+        gate_res = IC.gate(session, "review", persist=False)  # the report reads records; it never writes them
         J["review_gate"] = {k: gate_res[k] for k in ("readiness", "blockers", "warnings")}
         if gate_res["blockers"] and final.startswith("READY"):
             final = f"NOT READY — {len(gate_res['blockers'])} Review Gate blocker(s): " + "; ".join(gate_res["blockers"][:3])
@@ -582,7 +582,12 @@ def pr_check(session, text):
     affected = [(s, c) for s in syms for c in s.get("consumers") or []
                 if c.get("targeted") is False and not (c.get("impact") or "").lower().startswith("none")]
     open_guards = [g for g in (imp or {}).get("guards", []) if g.get("unguarded") or g.get("unknown") or g.get("coverage") != "COMPLETE (static search; see limitations)"]
+    quoted = [c["text"].lower() for c in (imp or {}).get("criteria", [])]
     for sent in _sentences(text):
+        # the generated lines quote the criteria and the entry-point table — those are records, not claims
+        if re.match(r"^-?\s*(AC-\d+:|Coverage:|\*\*Guard\*\*|- .*\((?:`[^`]+`)\): (?:enforced|NOT enforced|unknown))", sent) or \
+                any(q and q[:60] in sent.lower() for q in quoted):
+            continue
         if PRESERVE.search(sent):
             for s in syms:
                 if _mentions(sent, s) and not NOT_A_CLAIM.search(sent):

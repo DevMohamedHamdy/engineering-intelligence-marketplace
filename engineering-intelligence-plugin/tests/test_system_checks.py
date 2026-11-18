@@ -119,6 +119,91 @@ class LifecycleAndStalenessTest(unittest.TestCase):
         self.assertEqual(c, 1)
 
 
+class ReviewFindingsRegressionTest(unittest.TestCase):
+    """Fixes from the independent review of 0.15.0."""
+
+    def setUp(self):
+        self.fx = Fixture()
+        self.S, self.D = self.fx.session, self.fx.decisions
+        run("impact_check.py", "start", self.S, "--project", self.fx.repo, "--task", "feature")
+        run("impact_check.py", "criteria", self.S, "--json", "-", payload=CRITERIA)
+
+    def tearDown(self):
+        self.fx.cleanup()
+
+    def test_local_namesakes_are_not_consumers(self):
+        for i in range(3):
+            (self.fx.repo / f"src/components/Other{i}.tsx").write_text(
+                "import {ScaledSheet} from 'react-native-size-matters';\nconst styles = ScaledSheet.create({a: {}});\n"
+                "export const Other = () => styles.a;\n")
+        out = run("impact_check.py", "consumers", self.S, "--symbol", "styles", "--file", "src/screens/PayWith/index.tsx")[1]
+        self.assertEqual((out["exported"], out["consumer_files"]), (False, []), out)
+        out = run("impact_check.py", "consumers", self.S, "--symbol", "usePayments")[1]
+        self.assertEqual(len(out["consumer_files"]), 4, "exported hook: the files that import it")
+
+    def test_jsx_props_ignore_assignments_and_moves(self):
+        run("change_log.py", "start", self.S, "--project", self.fx.repo)
+        sh = self.fx.repo / "src/components/PaymentMethodsSheet/index.tsx"
+        sh.write_text(sh.read_text().replace("  const handleAddNewCard = () => onAddCard();",
+                                             "  let status = 'idle';\n  const handleAddNewCard = () => onAddCard();")
+                      .replace('        title="Add New"\n', '        title="Add New"\n        accessibilityLabel={label({a: 1})}\n'))
+        det = run("impact_check.py", "detect", self.S)[1]
+        self.assertEqual(det["prop_changes"], [], det["prop_changes"])
+
+    def test_generated_pr_passes_its_own_check_with_unknown_paths(self):
+        sites = run("impact_check.py", "callers", self.S, "--action", "continueReviewedOrder")[1]["call_sites"]
+        eps = [{"ref": s["ref"], "chain": s["chain"], "enforced": "unknown", "evidence": "not traced"} for s in sites]
+        run("impact_check.py", "guard", self.S, "--json", "-", payload={
+            "action": "continueReviewedOrder", "guard": "mainButtonDisabled", "guard_location": f"{CHECKOUT}:11",
+            "criteria": ["AC-2"], "entry_points": eps})
+        c, out = run("final_report.py", "pr", self.S)
+        self.assertTrue(out["check"]["passed"], out["check"])
+
+    def test_baseline_cannot_be_recaptured_after_implementation_starts(self):
+        run("verify_baseline.py", "run", self.S, "--project", self.fx.repo, "--name", "tsc", "--phase", "baseline", "--cmd", self.fx.tsc_cmd("baseline"))
+        run("change_log.py", "start", self.S, "--project", self.fx.repo)
+        c, out = run("verify_baseline.py", "run", self.S, "--project", self.fx.repo, "--name", "tsc", "--phase", "baseline", "--cmd", self.fx.tsc_cmd("after"))
+        self.assertEqual(c, 2)
+        self.assertIn("count new errors as existing", out["reason"])
+
+    def test_after_run_cannot_be_skipped_when_the_baseline_ran(self):
+        run("verify_baseline.py", "run", self.S, "--project", self.fx.repo, "--name", "tsc", "--phase", "baseline", "--cmd", self.fx.tsc_cmd("baseline"))
+        run("verify_baseline.py", "not-run", self.S, "--name", "tsc", "--phase", "after", "--reason", "no time left to run it")
+        run("change_log.py", "start", self.S, "--project", self.fx.repo)
+        c, g = run("impact_check.py", "gate", self.S, "--stage", "review")
+        self.assertTrue(any(b.startswith("tsc: NOT RUN") for b in g["blockers"]), g["blockers"])
+
+    def test_abandoned_task_releases_edits_and_says_how(self):
+        from pr708_fixture import hook
+        deny = hook("pre", self.fx.repo / CHECKOUT)
+        self.assertIn("finish", deny["hookSpecificOutput"]["permissionDecisionReason"])
+        import os, time
+        old = time.time() - 25 * 3600
+        imp = self.S / "impact.json"
+        reg = next(p for p in (pathlib.Path(__import__("tempfile").gettempdir()) / "ei-gate").glob("*.json")
+                   if json.loads(p.read_text())["session"] == str(self.S.resolve()))
+        os.utime(imp, (old, old)); os.utime(reg, (old, old))
+        self.assertIsNone(hook("pre", self.fx.repo / CHECKOUT), "untouched for over a day: no longer holds edits")
+
+    def test_non_git_project_is_refused(self):
+        plain = self.fx.root / "plain"
+        plain.mkdir()
+        c, out = run("impact_check.py", "start", self.fx.root / "s2", "--project", plain, "--task", "fix")
+        self.assertEqual(c, 1)
+        self.assertIn("not a git repository", out["reason"])
+
+    def test_findings_need_unique_ids_and_app_roles_do_not_answer_backend(self):
+        c, out = run("impact_check.py", "review", self.S, "--json", "-", payload={
+            "reviewer": "system-subagent", "scope": "full-diff", "findings": [{"title": "a"}, {"title": "b"}]})
+        self.assertEqual(c, 1)
+        run("decision_records.py", "ask", self.D, "--json", "-", payload={
+            "title": "COD", "kind": "backend", "owner": "backend team", "question": "Is codAvailable computed on the final total?"})
+        c, out = run("decision_records.py", "answer", self.D, "Q-001", "--json", "-", payload={
+            "text": "yes it uses the final total", "addresses_question": True,
+            "evidence": [{"kind": "HUMAN", "source": "me", "role": "mobile developer", "quote": "I think it is the final total"}]})
+        self.assertEqual(c, 1)
+
+
 class HookConfigTest(unittest.TestCase):
     def test_hooks_registered(self):
         cfg = json.loads((HERE.parent / "hooks" / "hooks.json").read_text())["hooks"]

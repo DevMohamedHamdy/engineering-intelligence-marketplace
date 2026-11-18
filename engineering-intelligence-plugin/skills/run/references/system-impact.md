@@ -38,6 +38,8 @@ python3 -I <skill-dir>/scripts/verify_baseline.py run <session-dir> --project <r
 
 ## 2. Changed symbols → consumers → before / after → behavior to preserve
 
+Consumers are counted the way a module system sees them: a symbol its file doesn't export has no consumers outside that file (a local `styles` or `handlePress` is not shared with the 200 other files that have one); an exported symbol's consumers are the files that import it by name. `detect` attributes a change inside a file-local helper to the exported symbol containing it and lists the helper under `internal_only`.
+
 For every **existing** symbol whose behavior or contract the change modifies — component, function, hook, shared
 utility, prop or public interface, handler, condition, default value, guard, query behavior, type:
 
@@ -144,7 +146,10 @@ that earned it — **ENFORCED** (lint or written standard, requests on ≥ 2 PRs
 **OBSERVED**, **ADVISORY** (mixed evidence, e.g. naming), **NOT_APPLICABLE** — and a confidence word, never a
 percentage. No GitHub access → the limitation is recorded and the other sources are used. Read the
 `uncatalogued_candidates` (recurring review terms) and record real conventions with `conventions.py add` (evidence
-required; naming is ENFORCED only by lint or a written standard). ENFORCED conventions override "follow the closest
+required; naming is ENFORCED only by lint or a written standard). Only the catalogued conventions (scaled units in
+ScaledSheet, design-tool references in comments, the isRTL helper; naming is never checked) are checked mechanically;
+conventions added by hand are listed for the implementer and the reviewers. A lint file or document counts only when it
+states a rule (a lint rule line, a directive sentence), not when it merely mentions the term. ENFORCED conventions override "follow the closest
 pattern": don't copy a neighbor that violates them. Before the Review Gate, `conventions.py check` scans the added
 lines: ENFORCED violations block, OBSERVED warn, ADVISORY are never presented as rules.
 
@@ -182,7 +187,7 @@ python3 -I <skill-dir>/scripts/impact_check.py show <session-dir>              #
 python3 -I <skill-dir>/scripts/impact_check.py gate <session-dir> --stage plan
 python3 -I <skill-dir>/scripts/final_report.py pr <session-dir>                # <session-dir>/pr.md, checked
 python3 -I <skill-dir>/scripts/impact_check.py gate <session-dir> --stage review
-python3 -I <skill-dir>/scripts/impact_check.py finish <session-dir>            # end of task: releases the edit hook
+python3 -I <skill-dir>/scripts/impact_check.py finish <session-dir>            # end, cancel, or abandon: releases the edit hook
 ```
 
 **Plan stage** blocks on: no acceptance criteria · no consumer record (or `declare --none`) or an invalid one · an

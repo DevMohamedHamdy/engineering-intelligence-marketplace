@@ -10,9 +10,10 @@
 Silent when no EI task is registered for the edited file's project, when the session records are gone, or for files
 outside the project (the session folder itself is outside it). Limitation: edits made through the shell are not seen.
 """
-import hashlib, json, os, pathlib, subprocess, sys, tempfile
+import json, os, pathlib, subprocess, sys, tempfile, time
 
 REGISTRY = pathlib.Path(tempfile.gettempdir()) / "ei-gate"
+TTL_HOURS = 24  # a registration nobody touched for a day is an abandoned task: it no longer holds edits
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "skills" / "run" / "scripts"
 
 
@@ -31,6 +32,12 @@ def task_for(path):
             if not imp.is_file():
                 return None
             try:
+                age_h = (time.time() - max(reg.stat().st_mtime, imp.stat().st_mtime)) / 3600
+            except OSError:
+                return None
+            if age_h > TTL_HOURS:
+                return None
+            try:
                 return {**data, "impact": json.loads(imp.read_text(encoding="utf-8")), "rel": os.path.relpath(f, root)}
             except (OSError, ValueError):
                 return None
@@ -46,7 +53,7 @@ def pre(event):
     t = task_for(path) if path else None
     if not t:
         return 0
-    if (t["impact"].get("gates") or {}).get("plan", {}).get("passed"):
+    if t["impact"].get("edits_allowed") or (t["impact"].get("gates") or {}).get("plan", {}).get("passed"):
         return 0
     when = "the Plan Gate" if t["task"] == "feature" else "the first edit"
     out("PreToolUse", permissionDecision="deny",
@@ -54,7 +61,8 @@ def pre(event):
             f"EI {t['task']} task: the recorded checkpoint before {when} has not passed, so {t['rel']} can't be edited yet. "
             f"Run: python3 -I \"{SCRIPTS / 'impact_check.py'}\" gate \"{t['session']}\" --stage plan — then record what it "
             "lists (changed-symbol consumers, guarded-action entry points, open questions, conventions profile, "
-            "type/lint baseline) and run it again."))
+            "type/lint baseline) and run it again. If this EI task was cancelled or abandoned, release the guard: "
+            f"python3 -I \"{SCRIPTS / 'impact_check.py'}\" finish \"{t['session']}\"."))
     return 0
 
 

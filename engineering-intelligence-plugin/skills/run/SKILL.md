@@ -177,7 +177,7 @@ Method and commands: `references/system-impact.md`. Each checkpoint counts only 
 | Implementation | after each edit the hook re-runs `detect` for the file: a newly modified existing symbol → record it before the next edit; re-record a guard when its callers or the guard change |
 | Verification | same type/lint commands `--phase after` → `verify_baseline.py compare` (whole output, never filtered) · regression checks for affected consumers outside the ticket · `conventions.py check` |
 | Review | CodeRabbit loop → final full-diff fresh run → independent system-aware review (`impact_check.py brief` → fresh read-only subagent) → `impact_check.py review` for each → a disposition for every finding (`decision_records.py finding`) |
-| Review Gate | `final_report.py pr` (Reviewer Notes, open questions; `pr-check` for any edited text) → `impact_check.py gate --stage review` → `impact_check.py finish` after Accept |
+| Review Gate | `final_report.py pr` (Reviewer Notes, open questions; `pr-check` for any edited text) → `impact_check.py gate --stage review` → `impact_check.py finish` after Accept — and whenever the task is cancelled or abandoned (it releases the edit hook; an untouched registration also expires after 24 h) |
 
 ## Diagrams (BEFORE → LIVE → AFTER, editor image tabs, no project files)
 

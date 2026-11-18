@@ -37,6 +37,8 @@ STYLE_PROPS = (r"(?:width|height|min(?:Width|Height)|max(?:Width|Height)|margin\
                r"borderRadius|border\w*Width|top|left|right|bottom|gap|rowGap|columnGap|letterSpacing)")
 RAW_NUM = re.compile(rf"\b{STYLE_PROPS}\s*:\s*(-?\d+(?:\.\d+)?)\s*[,}}\n]")
 SUFFIXED = re.compile(rf"\b{STYLE_PROPS}\s*:\s*['\"]-?\d+(?:\.\d+)?@(?:s|vs|ms|mvs)(?:\d*(?:\.\d+)?)?['\"]")
+RULE_LINE = re.compile(r"""['"]?(error|warn)['"]?|:\s*[12]\b""")
+DIRECTIVE = re.compile(r"\b(must|should|always|never|don'?t|do not|avoid|use|required?)\b", re.I)
 FIGMA_COMMENT = re.compile(r"(//|/\*|\*|#).*\bfigma\b", re.I)
 BOOL_PATTERNS = {
     "isFetchingX / isLoadingX": re.compile(r"\bis(?:Fetching|Loading)[A-Z]\w*"),
@@ -344,8 +346,11 @@ def collect(session, project, repo=None, limit=100, comments_file=None, no_githu
             hits = [c for c in hits if re.search(r"\b(remove|delete|drop|don'?t|do not|no|avoid|without)\b", c["body"], re.I)]
         matched |= {id(c) for c in hits}
         code = entry["code"](project)
-        lint_hit = next((f for f, t in lint_texts.items() if entry["comment"].search(t)), None)
-        doc_hit = next((f for f, t in doc_texts.items() if entry["comment"].search(t)), None)
+        # a mention is not a rule: lint needs a rule line (error / warn), a document a directive sentence
+        lint_hit = next((f for f, t in lint_texts.items() if any(entry["comment"].search(l) and RULE_LINE.search(l)
+                                                                 for l in t.splitlines())), None)
+        doc_hit = next((f for f, t in doc_texts.items() if any(entry["comment"].search(l) and DIRECTIVE.search(l)
+                                                               for l in re.split(r"(?<=[.!?])\s+|\n", t))), None)
         level, conf, reasons = classify(entry, hits, code, lint_hit, doc_hit)
         conventions.append({"id": entry["id"], "title": entry["title"], "rule": entry["rule"], "kind": entry["kind"],
                             "level": level, "confidence": conf, "basis": reasons, "checkable": entry["kind"] != "naming",
@@ -465,7 +470,7 @@ def _added(old, new):
     return res
 
 
-def check(session, project, data=None):
+def check(session, project, data=None, persist=True):
     data = data or load_profile(session)
     project = project or data["project"]
     active = [c for c in data["conventions"] if c["level"] in ("ENFORCED", "OBSERVED") and c.get("checkable") and c["id"] in CHECKERS]
@@ -482,8 +487,9 @@ def check(session, project, data=None):
     advisory = [c["id"] for c in data["conventions"] if c["level"] == "ADVISORY"]
     res = {"at": now(), "checked": [c["id"] for c in active], "violations": violations, "advisory_only": advisory,
            "blocking": [v for v in violations if v["level"] == "ENFORCED"]}
-    data["checks"] = (data.get("checks") or [])[-4:] + [res]
-    save_profile(session, data)
+    if persist:
+        data["checks"] = (data.get("checks") or [])[-4:] + [res]
+        save_profile(session, data)
     return res
 
 

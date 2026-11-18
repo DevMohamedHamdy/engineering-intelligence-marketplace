@@ -109,6 +109,9 @@ def key(e):
 def record(session, name, phase, entry):
     data = load(session) or {"schema": SCHEMA, "checks": {}}
     chk = data["checks"].setdefault(name, {})
+    if phase == "baseline" and chk.get("baseline") and (pathlib.Path(session) / "changes.json").is_file():
+        raise ValueError(f"{name}: the baseline was captured before implementation started; re-capturing it now would "
+                         "count new errors as existing")
     if phase == "after" and chk.get("baseline") and chk["baseline"].get("command") and entry.get("command") \
             and chk["baseline"]["command"] != entry["command"]:
         entry["comparable"] = False

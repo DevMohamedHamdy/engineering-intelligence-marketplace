@@ -474,8 +474,13 @@ def check_strong(ev, project=None):
 
 
 def role_matches(role, owner):
-    words = lambda t: {w for w in re.findall(r"[a-z]+", (t or "").lower()) if w not in ("team", "the", "a", "an", "of", "or", "and")}
-    return bool(words(role) & words(owner))
+    words = lambda t: {w for w in re.findall(r"[a-z]+", (t or "").lower()) if w not in ("team", "the", "a", "an", "of", "or", "and",
+                                                                                    "lead", "engineer", "developer", "dev")}
+    app = {"mobile", "app", "frontend", "ios", "android", "client"}
+    r, o = words(role), words(owner)
+    if (r & app) and not (o & app):
+        return False  # the app side does not speak for the backend / product owner
+    return bool(r & o)
 
 
 def answer_errors(q, ans, data, project=None):

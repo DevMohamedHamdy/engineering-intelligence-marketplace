@@ -493,7 +493,8 @@ class WorkflowIntegration(Base):
         co = self.fx.repo / CHECKOUT
         co.write_text(co.read_text().replace("placeOrder(cart);", "placeOrder(cart, {source: 'checkout'});"))
         post = hook("post", co)
-        self.assertIn("continueReviewedOrder", post["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("Checkout (src/screens/Checkout/index.tsx:9)", post["hookSpecificOutput"]["additionalContext"],
+                      "a change inside a file-local handler is attributed to the exported symbol that contains it")
         co.write_text(co.read_text().replace("placeOrder(cart, {source: 'checkout'});", "placeOrder(cart);"))
         # implementation with the guard bypass left in → NOT READY
         self.finish_review_records(guard_fixed=False)
