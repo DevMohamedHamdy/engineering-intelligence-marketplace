@@ -66,5 +66,6 @@ Always present the full content in chat first, then ask. For the Scope Gate and 
 | Iteration limit / persistent finding | "<finding> is still unresolved after <n> attempts. How to proceed?" (Unresolved) | Leave unresolved and continue · Try a different fix · Stop the task |
 | Paid continuation | "CodeRabbit needs usage credits (<files>, up to <cost>). Use credits?" (Credits) | Don't use credits (Recommended) · Use credits for this review |
 | Review Gate (G3) | "Accept the result? Logic: <comparison verdict>" (Review) — after the BEFORE/AFTER/side-by-side diagrams are open and the comparison is in chat; preview: verdict, counts, non-PRESERVED items | Accept (Recommended) · Request changes · (pilot) Continue to next batch |
+| End of every task (after Accept; end of Analyze / Review) | "Do you need a full report?" (Report) | Yes, full report · No — on Yes: build it, give the `file://` link, and walk through everything in it |
 | End of Analyze / Review / large task | "Save this as Markdown docs in the project?" (Save) | Don't save (Recommended) · Save to docs/engineering-intelligence/ |
 | Walkthrough next step | "What would you like to do next?" (Next) | 2–4 concrete next steps derived from the findings | 

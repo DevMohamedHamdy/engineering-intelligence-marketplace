@@ -11,17 +11,18 @@ Also owns the only record the workflow didn't persist before: the plan and its e
 
 Sources per section (missing → stated as unavailable, never filled in):
   1 Executive summary   assurance.json verdict · benchmark.json · workflow.json objective
-  2 Scope & baseline    audit.json (base, diff, rules) · before-*.mmd diagrams · evidence repo state
-  3 Proposed            workflow.json plan · proposed-*.mmd
-  4 Decisions           decisions.json (decision_records.report_md)
-  5 Execution           workflow.json steps · audit diff · decision outcomes · failed runs
-  6 Before / After      *.mmd pairs (diagram_lint.graph_diff) · rule diagram_nodes · decision related.diagrams · diagrams.html
-  7 Audit               business_audit.py report
-  8 Verification        evidence.json test/static-analysis items · assurance missing checks
-  9 Evidence ledger     evidence.json (integrity re-checked at build time)
-  10 Assurance          assurance.json (latest)
-  11 Benchmark          benchmark.json (latest measurement, runs)
-  12 Final              findings, unresolved risk, unverified areas → recommendation (deterministic)
+  2 What changed & why  changes.json (change_log.py) checked against the real diff — unexplained changes are flagged
+  3 Scope & baseline    audit.json (base, diff, rules) · before-*.mmd diagrams · evidence repo state
+  4 Plan                workflow.json plan
+  5 Decisions           decisions.json (decision_records.report_md)
+  6 Execution           workflow.json steps · audit diff · decision outcomes · failed runs
+  7 Before / After      before/after (or live) *.mmd pairs (diagram_lint.graph_diff) · compare-*.svg images
+  8 Audit               business_audit.py report
+  9 Verification        evidence.json test/static-analysis items · assurance missing checks
+  10 Evidence ledger    evidence.json (integrity re-checked at build time)
+  11 Assurance          assurance.json (latest)
+  12 Benchmark          benchmark.json (latest measurement, runs)
+  13 Final              findings, unexplained changes, unresolved risk, unverified areas → recommendation (deterministic)
 """
 import argparse, datetime, html, json, os, pathlib, re, shutil, subprocess, sys
 
@@ -29,11 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import assurance as AS  # noqa: E402
 import benchmark as BM  # noqa: E402
 import business_audit as BA  # noqa: E402
+import change_log as CL  # noqa: E402
 import decision_records as DR  # noqa: E402
 import diagram_lint as DL  # noqa: E402
 import evidence_ledger as EL  # noqa: E402
 
-RECORDS = ["workflow.json", "decisions.json", "audit.json", "evidence.json", "assurance.json", "benchmark.json"]
+RECORDS = ["changes.json", "workflow.json", "decisions.json", "audit.json", "evidence.json", "assurance.json", "benchmark.json"]
 
 
 def now():
@@ -156,20 +158,24 @@ def build(session, out, project=None, title=None):
     mmd = {p.stem: p for p in session.glob("*.mmd")}
     graphs = {k: DL.lint(p.read_text(encoding="utf-8"))["graph"] for k, p in mmd.items()}
     dg = out / "diagrams"
-    viewer = None
-    if (session / "diagrams.html").is_file():
+    for svg in session.glob("*.svg"):
         dg.mkdir(exist_ok=True)
-        shutil.copy2(session / "diagrams.html", dg / "diagrams.html")
-        for svg in session.glob("*.svg"):
-            shutil.copy2(svg, dg / svg.name)
-        viewer = "diagrams/diagrams.html"
+        shutil.copy2(svg, dg / svg.name)
     svgs = {p.stem for p in dg.glob("*.svg")} if dg.is_dir() else set()
+    changes = jload(session / "changes.json")
+    cl_res = CL.analyze(changes, session) if changes else None
+    cl_open = (len(cl_res["unexplained_entries"]) + len(cl_res["uncovered_hunks"])) if cl_res else 0
 
     verdict = assur["verdict"] if assur else (audit_res["recommendation"] if audit_res else None)
     regressed_q = [k for k, v in ((bench or {}).get("measurements") or [{}])[-1].get("deltas", {}).items() if v.get("result") == "regressed"] if bench and bench.get("measurements") else []
     improved_q = [k for k, v in bench["measurements"][-1]["deltas"].items() if v.get("result") == "improved"] if bench and bench.get("measurements") else []
     open_dec = [d for d in decisions.values() if d["status"] in ("PROPOSED", "UNDER_REVIEW")]
-    if verdict in (None, "INSUFFICIENT_EVIDENCE"):
+    if verdict is None and cl_res is not None:  # Feature / Fix: no behavior audit — judged on the explained changes
+        final = (f"NOT READY — {cl_open} change(s) without a sourced reason; explain or revert them" if cl_open else
+                 "READY FOR HUMAN REVIEW — every change is explained by a sourced reason")
+        if open_dec and not cl_open:
+            final = "READY WITH OPEN DECISIONS — decisions await the developer: " + ", ".join(d["id"] for d in open_dec)
+    elif verdict in (None, "INSUFFICIENT_EVIDENCE"):
         final = "NOT READY — the evidence does not support a conclusion; see Unverified Areas" if verdict else \
             "NOT READY — no assurance or audit result was recorded"
     elif verdict == "UNEXPECTED_BUSINESS_IMPACT_FOUND":
@@ -180,6 +186,8 @@ def build(session, out, project=None, title=None):
         final = "READY FOR HUMAN REVIEW — " + ("no unexpected business impact detected in the evidenced scope" if
                                                verdict.startswith("VERIFIED") else "only pre-approved business changes") + \
                 (f"; quality regressions to weigh: {', '.join(regressed_q)}" if regressed_q else "")
+    if cl_open and final.startswith("READY"):
+        final = f"NOT READY — {cl_open} change(s) without a sourced reason; explain or revert them"
     J["final_recommendation"], J["verdict"] = final, verdict
 
     # 1
@@ -196,9 +204,22 @@ def build(session, out, project=None, title=None):
         risks += [f"rules not fully verified: {', '.join(ur['high_weight_rules_not_fully_verified'])}"] if ur["high_weight_rules_not_fully_verified"] else []
         risks += [f"{ur['changes_outside_every_rule']} changed hunk(s) outside every rule"] if ur["changes_outside_every_rule"] else []
     S.append(f"- **Important risks:** {'; '.join(risks) or ('none recorded' if assur else 'assurance not assessed')}")
+    if cl_res:
+        S.append(f"- **Changes:** {cl_res['entries']} recorded in {len(cl_res['files_changed'])} file(s); "
+                 f"{cl_open} without a sourced reason")
     S.append(f"- **Final recommendation:** **{final}**\n")
+    # what changed and why
+    S.append("## 2. What Changed and Why\n")
+    if changes:
+        S.append(CL.table_md(changes, cl_res) + "\n")
+        S.append(f"_Compared with the state at implementation start (commit `{changes['base_commit'][:10]}`"
+                 + (f", plus {len(changes['preexisting_changes'])} file(s) already modified before the task" if changes["preexisting_changes"] else "")
+                 + "). Every reason points to its source: ticket criterion, approved decision, review finding, the "
+                 "implementation standard, or your request._\n")
+    else:
+        S.append(unavailable("no change log (change_log.py start / add)"))
     # 2
-    S.append("## 2. Scope and Baseline\n")
+    S.append("## 3. Scope and Baseline\n")
     if audit:
         repo = next((x.get("repo") for x in (led or {}).get("items", []) if x.get("repo")), None) or {}
         S.append(f"- Repository: `{repo.get('identity') or audit['project']}` · branch `{repo.get('branch') or '—'}` · "
@@ -213,7 +234,7 @@ def build(session, out, project=None, title=None):
     befores = sorted(k for k in mmd if k.startswith("before-"))
     S.append(f"- Original diagrams: {', '.join(befores) or 'none'}\n")
     # 3
-    S.append("## 3. Proposed Refactoring\n")
+    S.append("## 4. Plan\n")
     if wf and wf.get("plan"):
         p = wf["plan"]
         ap = plan_approved(wf)
@@ -227,13 +248,12 @@ def build(session, out, project=None, title=None):
         S.append(f"- Known risks: {'; '.join(p.get('risks') or []) or 'not recorded'}")
     else:
         S.append(unavailable("plan not recorded (final_report.py plan)"))
-    props = sorted(k for k in mmd if k.startswith("proposed-"))
-    S.append(f"- Proposed diagrams: {', '.join(props) or 'none'}\n")
+    S.append("")
     # 4
-    S.append("## 4. Decision Records\n")
+    S.append("## 5. Decision Records\n")
     S.append(demote(DR.report_md(dec_data), 2).replace("### Engineering Decision Records\n", "") if dec_data else unavailable("no decisions.json"))
     # 5
-    S.append("## 5. Execution Summary\n")
+    S.append("## 6. Execution Summary\n")
     if wf and wf.get("steps"):
         S.append("| When | Step | Status | Note | Files | Recovery |\n|---|---|---|---|---|---|")
         for s in wf["steps"]:
@@ -252,10 +272,8 @@ def build(session, out, project=None, title=None):
     fails = [x for x in (led or {}).get("items", []) if x["type"] == "test" and x["state"] == "FAILED"]
     S.append(f"- Failed checks: {', '.join(x['id'] + ' `' + (x['origin'].get('command') or '') + '`' for x in fails) or 'none'}\n")
     # 6
-    S.append("## 6. Before / After Comparison\n")
-    if viewer:
-        S.append(f"Interactive read-only viewer: [diagrams.html]({viewer}) (zoom, pan, node inspection, side-by-side comparison).\n")
-    else:
+    S.append("## 7. Before / After Comparison\n")
+    if not svgs:
         S.append("_Rendered diagrams unavailable — render_workspace.py was not run for this session; comparisons below come from the diagram sources._\n")
     node_rules, node_decs = {}, {}
     for r in (audit or {}).get("rules", []):
@@ -267,18 +285,22 @@ def build(session, out, project=None, title=None):
     pairs = []
     for b in befores:
         name = b[7:]
-        for right in (f"proposed-{name}", f"after-{name}"):
-            if right in graphs:
-                pairs.append((b, right))
+        right = next((f"{k}-{name}" for k in ("after", "live") if f"{k}-{name}" in graphs), None)
+        if right:
+            pairs.append((b, right))
     if not pairs:
-        S.append(unavailable("no before/proposed/after diagram pairs in the session"))
+        S.append(unavailable("no before/after diagram pairs in the session"))
     for left, right in pairs:
         d = DL.graph_diff(graphs[left], graphs[right])
         J.setdefault("diagram_diffs", {})[f"{left}..{right}"] = d
         S.append(f"### {left} → {right}\n")
-        for side in (left, right):
-            if side in svgs:
-                S.append(f"![{side}](diagrams/{side}.svg)")
+        name = left[7:]
+        if f"compare-{name}" in svgs:  # the same side-by-side image the developer saw in the editor tab
+            S.append(f"![BEFORE | {right.split('-')[0].upper()} — {name}](diagrams/compare-{name}.svg)")
+        else:
+            for side in (left, right):
+                if side in svgs:
+                    S.append(f"![{side}](diagrams/{side}.svg)")
         def refs(n):
             ids = node_rules.get(f"{left}#{n}", []) + node_rules.get(f"{right}#{n}", []) + node_decs.get(f"{left}#{n}", []) + node_decs.get(f"{right}#{n}", [])
             return f" ({', '.join(sorted(set(ids)))})" if ids else ""
@@ -288,7 +310,7 @@ def build(session, out, project=None, title=None):
         S.append(f"- Changed: {'; '.join(lab(n) for n in d['changed_nodes']) or 'none'}")
         S.append(f"- Relationships added: {', '.join(d['added_edges']) or 'none'} · removed: {', '.join(d['removed_edges']) or 'none'}\n")
     # 7
-    S.append("## 7. Business Logic Impact Audit\n")
+    S.append("## 8. Business Logic Impact Audit\n")
     if audit:
         args = [sys.executable, "-I", str(pathlib.Path(__file__).with_name("business_audit.py")), "report", str(session / "audit.json"), "--all"]
         if dec_data:
@@ -299,7 +321,7 @@ def build(session, out, project=None, title=None):
     else:
         S.append(unavailable("no audit.json"))
     # 8
-    S.append("## 8. Verification Results\n")
+    S.append("## 9. Verification Results\n")
     tests = [x for x in (led or {}).get("items", []) if x["type"] == "test"]
     if tests:
         S.append("| Evidence | Check | Side | Commit | Exit | State |\n|---|---|---|---|---|---|")
@@ -317,7 +339,7 @@ def build(session, out, project=None, title=None):
         S.append(f"- Checks not executed: {'; '.join(missing) or 'none identified'}")
     S.append("- Limitations: only checks run through the tools are counted; a test written but not run counts as not executed.\n")
     # 9
-    S.append("## 9. Evidence Ledger\n")
+    S.append("## 10. Evidence Ledger\n")
     if led:
         S.append(f"Integrity re-checked at build: {len(integrity)} item(s) changed state" + (" — " + "; ".join(f"{i['id']} {i['state']}: {i['reason']}" for i in integrity) if integrity else "") + "\n")
         by_type = {}
@@ -336,10 +358,10 @@ def build(session, out, project=None, title=None):
     else:
         S.append(unavailable("no evidence.json"))
     # 10
-    S.append("## 10. Confidence & Assurance\n")
+    S.append("## 11. Confidence & Assurance\n")
     S.append(demote(re.sub(r"^# .*\n", "", AS.to_md(assur), count=1), 1) if assur else unavailable("assurance.py assess was not run"))
     # 11
-    S.append("## 11. Refactoring Quality Benchmark\n")
+    S.append("## 12. Refactoring Quality Benchmark\n")
     if bench and bench.get("measurements"):
         S.append(demote(re.sub(r"^# .*\n", "", BM.report_md(bench), count=1), 1))
         if len(bench.get("runs") or []) >= 2:
@@ -351,7 +373,7 @@ def build(session, out, project=None, title=None):
     else:
         S.append(unavailable("benchmark.py measure was not run"))
     # 12
-    S.append("\n## 12. Final Findings and Recommendation\n")
+    S.append("\n## 13. Final Findings and Recommendation\n")
     fs = BA.current(audit) if audit else []
     arule = {r["rule"]: r for r in (assur or {}).get("rules", [])}
     crit = [f for f in fs if f["severity"] in ("CRITICAL", "HIGH") and f["classification"] != "PRESERVED"]
@@ -362,6 +384,9 @@ def build(session, out, project=None, title=None):
     if not crit:
         S.append("- none")
     review = [f"{f['id']} ({f['classification']})" for f in fs if f.get("needs_review")] + [f"{d['id']} decision {d['status']}" for d in open_dec]
+    if cl_res:
+        review += [f"{e} (no sourced reason)" for e in cl_res["unexplained_entries"]]
+        review += [f"{h['file']}:{h['lines']} (changed, no entry)" for h in cl_res["uncovered_hunks"]]
     S.append(f"\n**Items requiring human review:** {', '.join(review) or 'none'}")
     S.append("\n**Unverified areas:**")
     for u in (audit_res or {}).get("unverified", []) or ["none recorded"]:
@@ -384,17 +409,18 @@ def build(session, out, project=None, title=None):
              "[HUMAN_CONFIRMED] developer confirmed · [UNKNOWN] not established. This report projects the recorded workflow "
              "data; it is not a guarantee of complete correctness.")
     body = "\n".join(S) + "\n"
-    head = (f"# {title or 'Refactoring Report'}\n\n> Generated {J['generated_at']} from session records "
+    head = (f"# {title or 'Engineering Report'}\n\n> Generated {J['generated_at']} from session records "
             f"({', '.join(J['records']) or 'none'}). Every ID links to its record in this export.\n\n")
     toc = "\n".join(f"- [{h}](#{slug(h)})" for h in re.findall(r"^## (.+)$", body, re.M))
     md = head + "**Contents**\n\n" + toc + "\n\n" + body
     (out / "report.md").write_text(md, encoding="utf-8")
-    (out / "report.html").write_text(to_html(md, title or "Refactoring Report"), encoding="utf-8")
+    (out / "report.html").write_text(to_html(md, title or "Engineering Report"), encoding="utf-8")
     J.update(audit_recommendation=(audit_res or {}).get("recommendation"), assurance=assur and {k: assur[k] for k in ("id", "verdict", "scores")},
              benchmark=bench and bench.get("measurements") and {k: bench["measurements"][-1][k] for k in ("id", "deltas")},
              integrity_changes=integrity, sections=re.findall(r"^## (.+)$", body, re.M))
     (out / "report.json").write_text(json.dumps(J, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return {"status": "ok", "out": str(out), "verdict": verdict, "final_recommendation": final,
+            "report_html": (out / "report.html").as_uri(), "unexplained_changes": cl_open,
             "files": sorted(p.name for p in out.iterdir())}
 
 

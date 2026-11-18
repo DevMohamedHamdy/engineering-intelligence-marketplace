@@ -11,10 +11,10 @@ flowchart LR
   TOT["total + analytics"]
   VAL --> FEE --> TOT
 """
-SECTIONS = ["1. Executive Summary", "2. Scope and Baseline", "3. Proposed Refactoring", "4. Decision Records",
-            "5. Execution Summary", "6. Before / After Comparison", "7. Business Logic Impact Audit", "8. Verification Results",
-            "9. Evidence Ledger", "10. Confidence & Assurance", "11. Refactoring Quality Benchmark",
-            "12. Final Findings and Recommendation"]
+SECTIONS = ["1. Executive Summary", "2. What Changed and Why", "3. Scope and Baseline", "4. Plan", "5. Decision Records",
+            "6. Execution Summary", "7. Before / After Comparison", "8. Business Logic Impact Audit", "9. Verification Results",
+            "10. Evidence Ledger", "11. Confidence & Assurance", "12. Refactoring Quality Benchmark",
+            "13. Final Findings and Recommendation"]
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required")
@@ -71,18 +71,18 @@ class FinalReportTest(unittest.TestCase):
         self.assertIn("Plan approval: **approved by developer via Plan Gate", md)
         self.assertIn("D-001", md)
         self.assertIn("`FEE` deliveryFee (10 below 100) (", md, "changed diagram node links to its rule")
-        self.assertIn(self.s.ids["fee"], md.split("## 6.")[1].split("## 7.")[0])
+        self.assertIn(self.s.ids["fee"], md.split("## 7.")[1].split("## 8.")[0])
         self.assertIn("CHANGED_INTENTIONALLY", md)
         self.assertIn("differential", md)
         self.assertIn('<a id="ev-EV-001"></a>EV-001', md)
-        self.assertNotIn("Unavailable", md.split("## 7.")[0].split("## 3.")[1], "all upstream records present")
+        self.assertNotIn("Unavailable", md.split("## 8.")[0].split("## 3.")[1], "all upstream records present")
         h = (self.out / "report.html").read_text()
         self.assertIn('href="#ev-EV-001"', h)
         self.assertIn('id="ev-EV-001"', h)
         self.assertFalse(re.findall(r'(?:src|href)="https?://', h), "no external assets")
         self.assertNotIn("<script", h)
         j = json.loads((self.out / "report.json").read_text())
-        self.assertEqual(len(j["sections"]), 12)
+        self.assertEqual(len(j["sections"]), 13)
         self.assertEqual(j["verdict"], "APPROVED_CHANGES_ONLY")
         self.assertIn("before-order..after-order", j["diagram_diffs"])
 
@@ -92,7 +92,7 @@ class FinalReportTest(unittest.TestCase):
         md = (self.out / "report.md").read_text()
         for rec in json.loads((self.out / "report.json").read_text())["records"]:
             self.assertTrue((self.out / rec).is_file())
-        self.assertIn("## 12.", md)
+        self.assertIn("## 13.", md)
 
     def test_missing_records_are_stated_not_invented(self):
         empty = self.s.root / "empty-session"
@@ -100,7 +100,7 @@ class FinalReportTest(unittest.TestCase):
         res = self.fr("build", empty, "--out", self.s.root / "x")
         md = (self.s.root / "x" / "report.md").read_text()
         self.assertEqual(res["final_recommendation"], "NOT READY — no assurance or audit result was recorded")
-        for why in ("no audit baseline", "plan not recorded", "no decisions.json", "no execution steps recorded",
+        for why in ("no change log", "no audit baseline", "plan not recorded", "no decisions.json", "no execution steps recorded",
                     "no audit.json", "assurance.py assess was not run", "benchmark.py measure was not run", "no evidence.json"):
             self.assertIn(why, md)
 
@@ -114,7 +114,7 @@ class FinalReportTest(unittest.TestCase):
         self.assertEqual(res["verdict"], "UNEXPECTED_BUSINESS_IMPACT_FOUND")
         self.assertTrue(res["final_recommendation"].startswith("DO NOT MERGE"))
         md = (self.out / "report.md").read_text()
-        final = md.split("## 12.")[1]
+        final = md.split("## 13.")[1]
         self.assertIn("[VERIFIED] BF-001", final)
         self.assertIn("restore the original behavior", final)
         self.assertIn("BLOCKED — regression detected", md)
