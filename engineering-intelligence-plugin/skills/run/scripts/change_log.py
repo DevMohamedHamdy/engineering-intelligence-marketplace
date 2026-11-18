@@ -211,6 +211,43 @@ def cmd_add(a):
     return emit({"status": "ok", "added": ids})
 
 
+def _norm(text):
+    t = re.sub(r"\s+", "", text).replace("'", '"')
+    return re.sub(r",(?=[}\])])", "", t).rstrip(",;")
+
+
+def atoms(line):
+    """Content pieces of a line, independent of layout: whitespace, quote style and trailing commas ignored."""
+    return [a for a in re.split(r"[,;{}()\[\]]", _norm(line)) if len(a) >= 2]
+
+
+def formatting(old_lines, new_lines):
+    """Layout-only changes in a hunk: 'hunk' when the whole hunk is the same code laid out differently; otherwise the
+    existing lines whose content survived but was split over several lines or joined with others (a reflowed style
+    object, a re-wrapped call). An edit inside one line (a new prop added on the same line) is not formatting."""
+    if old_lines and new_lines and _norm("".join(old_lines)) == _norm("".join(new_lines)) and old_lines != new_lines:
+        return "hunk", [l.strip() for l in old_lines]
+    kept = {l.strip() for l in new_lines}
+    new_atoms = [set(atoms(l)) for l in new_lines]
+    reflowed, joined_into = [], {}
+    for l in old_lines:
+        s = l.strip()
+        a = set(atoms(l))
+        if not a or s in kept:
+            continue
+        if not all(any(x in na for na in new_atoms) for x in a):
+            continue  # content changed: a real edit
+        holders = [i for i, na in enumerate(new_atoms) if a & na]
+        if len(holders) >= 2:
+            reflowed.append(s)  # split over several lines
+        elif len(holders) == 1 and a <= new_atoms[holders[0]]:
+            joined_into.setdefault(holders[0], []).append(s)
+    for i, ls in joined_into.items():
+        if len(ls) >= 2:
+            reflowed += ls  # several lines joined into one
+    return ("lines", reflowed) if reflowed else (None, [])
+
+
 def spans(h):
     lo, hi = BA.hunk_span(h)
     new_lo = h["new_start"] if h["new_len"] else max(h["new_start"], 1)
@@ -246,13 +283,35 @@ def analyze(data, session):
                 (olo, ohi), (nlo, nhi) = spans(h)
                 uncovered.append({"file": f, "status": d["status"], "lines": f"{nlo}-{nhi}" if h["new_len"] else f"removed {olo}-{ohi}",
                                   "added": h["added"], "removed": h["removed"]})
+    # layout-only changes: confusing noise in the developer's diff (Implementation Standard §1) unless they asked for it
+    asked = [parse_where(e["where"]) for e in data["entries"] if (e.get("why") or {}).get("source") == "developer"
+             and re.search(r"\bformat", (e.get("what") or "") + " " + ((e.get("why") or {}).get("text") or ""), re.I)]
+    fmt = []
+    for f, d in real.items():
+        if d["status"] != "modified":
+            continue
+        old = (starting_text(data, session, f) or "").splitlines()
+        cur = pathlib.Path(data["project"]) / f
+        new = cur.read_text(encoding="utf-8", errors="replace").splitlines() if cur.is_file() else []
+        for h in d["hunks"]:
+            ol = old[h["old_start"] - 1:h["old_start"] - 1 + h["old_len"]] if h["old_len"] else []
+            nl = new[h["new_start"] - 1:h["new_start"] - 1 + h["new_len"]] if h["new_len"] else []
+            kind, lines = formatting(ol, nl)
+            if not kind:
+                continue
+            (olo, ohi), (nlo, nhi) = spans(h)
+            if any(w and w[0] == f and (w[1] is None or (w[1] <= nhi and nlo <= w[2])) for w in asked):
+                continue
+            fmt.append({"file": f, "lines": f"{nlo}-{nhi}", "kind": "formatting only" if kind == "hunk" else "reformatted existing lines",
+                        "examples": lines[:3]})
     unexplained = [e["id"] for e in data["entries"] if not e["explained"]]
     open_decisions = [e["id"] for e in data["entries"] if e.get("decision_status") in ("PROPOSED", "UNDER_REVIEW", "REJECTED")]
     return {"entries": len(data["entries"]), "files_changed": sorted(real),
             "hunks": sum(len(d["hunks"]) for d in real.values()), "uncovered_hunks": uncovered,
             "unexplained_entries": unexplained, "stale_entries": stale, "unapproved_decision_entries": open_decisions,
             "generated_excluded": sorted(f for f, d in diff.items() if d["generated"]),
-            "complete": not uncovered and not unexplained and not stale}
+            "formatting_changes": fmt,
+            "complete": not uncovered and not unexplained and not stale and not fmt}
 
 
 def cmd_check(a):
@@ -287,6 +346,9 @@ def table_md(data, res):
     for h in res["uncovered_hunks"]:
         L.append(f"| — | ⚠ **change with no entry** | `{h['file']}:{h['lines']}` | +{h['added']}/-{h['removed']} | "
                  "⚠ **UNEXPLAINED** — not described or justified |")
+    for h in res.get("formatting_changes", []):
+        L.append(f"| — | ⚠ **{h['kind']}** — revert the layout change | `{h['file']}:{h['lines']}` | FORMAT | "
+                 f"⚠ Standard §1: don't reformat existing code — e.g. `{esc(h['examples'][0][:60]) if h['examples'] else ''}` |")
     if res["stale_entries"]:
         L.append(f"\n_Entries that no longer match the diff: {', '.join(res['stale_entries'])}_")
     return "\n".join(L)

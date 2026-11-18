@@ -92,5 +92,63 @@ class ChangeLogTest(unittest.TestCase):
         self.assertIn("<table>", (out / "report.html").read_text())
 
 
+
+STYLES = """const styles = ScaledSheet.create({
+  container: {padding: '8@s', margin: '4@s'},
+  title: {fontSize: '14@ms'},
+  row: {flexDirection: 'row'},
+});
+"""
+
+
+class FormattingTest(unittest.TestCase):
+    """Implementation Standard §1: layout-only changes to existing code are flagged, real edits are not."""
+
+    def setUp(self):
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix="ei-fmt-"))
+        self.repo, self.session = self.root / "repo", self.root / "session"
+        self.repo.mkdir()
+        self.f = self.repo / "styles.ts"
+        self.f.write_text(STYLES)
+        g = lambda *a: subprocess.run(["git", "-C", str(self.repo), *a], capture_output=True, check=True)
+        g("init", "-q"); g("add", "-A"); g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+        run("change_log.py", "start", self.session, "--project", self.repo)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def check(self):
+        return run("change_log.py", "check", self.session)[1]
+
+    def test_split_style_object_is_flagged(self):
+        self.f.write_text(STYLES.replace("  container: {padding: '8@s', margin: '4@s'},\n",
+                                         "  container: {\n    padding: '8@s',\n    margin: '4@s',\n    gap: '2@s',\n  },\n"))
+        res = self.check()
+        self.assertEqual([h["kind"] for h in res["formatting_changes"]], ["reformatted existing lines"])
+        self.assertFalse(res["complete"])
+        self.assertIn("revert the layout change", run("change_log.py", "show", self.session)[1])
+
+    def test_formatting_only_hunk_and_quotes(self):
+        self.f.write_text(STYLES.replace("  title: {fontSize: '14@ms'},", '  title: { fontSize: "14@ms" },'))
+        self.assertEqual([h["kind"] for h in self.check()["formatting_changes"]], ["formatting only"])
+
+    def test_joined_lines_are_flagged(self):
+        self.f.write_text(STYLES.replace("  title: {fontSize: '14@ms'},\n  row: {flexDirection: 'row'},",
+                                         "  title: {fontSize: '14@ms'}, row: {flexDirection: 'row'},"))
+        self.assertTrue(self.check()["formatting_changes"])
+
+    def test_edit_on_the_same_line_is_not_formatting(self):
+        self.f.write_text(STYLES.replace("{padding: '8@s', margin: '4@s'}", "{padding: '8@s', margin: '4@s', gap: '2@s'}"))
+        self.assertEqual(self.check()["formatting_changes"], [])
+
+    def test_developer_requested_formatting_is_allowed(self):
+        self.f.write_text(STYLES.replace("  title: {fontSize: '14@ms'},", '  title: { fontSize: "14@ms" },'))
+        run("change_log.py", "add", self.session, "--json", "-", payload={
+            "what": "format the title style", "where": "styles.ts:3", "change": "CHANGED",
+            "why": {"source": "developer", "text": "format this style as I asked"}})
+        res = self.check()
+        self.assertEqual(res["formatting_changes"], [])
+        self.assertTrue(res["complete"], res)
+
 if __name__ == "__main__":
     unittest.main()

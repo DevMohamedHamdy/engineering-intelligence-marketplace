@@ -17,6 +17,7 @@ The goal: code that follows current best practice for the project's stack, in th
 - No new layer, abstraction, wrapper, base class, or generic helper unless it removes real, present duplication or complexity (`architecture-strategy.md` proportionality rules). Three similar lines beat a premature abstraction.
 - No new dependency when the language, platform, or an existing project dependency already does the job.
 - Smallest diff that does the job well: don't rename, reformat, or move unrelated code.
+- **Never reformat existing code — styles included.** Keep every existing line exactly as it is laid out: don't split a one-line style object over several lines (or join lines), don't re-wrap calls or JSX props, don't change quotes, trailing commas, or indentation of lines you didn't need to change, and never run a formatter (Prettier, `eslint --fix`, the editor's format-on-save) over a whole file. Layout-only changes add new lines to the diff that look like changes and confuse the developer reviewing it. New code follows the layout of the code around it; when adding a key to a one-line style object, add it on that line. Reformatting happens only when the developer asks for it — then it is its own entry in *What changed and why* (`why.source: developer`, "format …").
 - Delete what the change makes dead (unused imports, variables, branches) inside the Implementation Scope.
 
 ## 2. Current best practice — for the versions the project actually uses
@@ -42,4 +43,4 @@ The goal: code that follows current best practice for the project's stack, in th
 - **Plan Gate:** add one line — `Standard: <key choices, e.g. "uses existing useQuery hook, no new deps, React Navigation v7 API">`. Fix posts the same line with its root cause.
 - **Implementation:** write to this standard from the first edit.
 - **Review loop:** a violation of §1–3 inside the Implementation Scope is a `VALID` finding (severity by consequence; over-engineering and deprecated APIs are at least `MEDIUM`). Fixing it follows the normal fix policy.
-- **Review Gate:** one line — `Standard: met` or the exceptions with reason.
+- **Review Gate:** one line — `Standard: met` or the exceptions with reason. `change_log.py check` flags formatting-only hunks and reformatted existing lines as blockers (not complete) unless the developer asked for the formatting.
