@@ -14,7 +14,12 @@ detect → JSON: editor name, app bundle, family, verified CLI, version, how it 
 open   → opens the given .md / .png / .svg files as tabs in the detected editor's current window
          (VS Code-family: `<cli> -r <files>`). Refuses URLs and .html files.
 
-Detection order (first match wins):
+Host first: when Claude Code runs inside the Claude desktop app ($CLAUDE_CODE_ENTRYPOINT=claude-desktop, or
+Claude.app in the process ancestry) there is no editor to open tabs in — `detect` reports family "claude-app" and `view`
+writes one self-contained page with every diagram (<diagram-dir>/app-view.html) for Claude to show in the app with the
+Artifact tool. In an editor's terminal, nothing changes.
+
+Editor detection order (first match wins):
   1. Process ancestry of this shell: the editor app hosting the integrated terminal (macOS .app bundle,
      or Linux install dir containing bin/<cli>).
   2. Claude Code IDE connection lock files (~/.claude/ide/*.lock): the IDE whose port equals
@@ -22,7 +27,7 @@ Detection order (first match wins):
 The CLI is always taken from inside the detected editor's own install and verified with --version;
 a `code` command on PATH is never assumed to be VS Code.
 """
-import argparse, glob, json, os, pathlib, plistlib, re, subprocess, sys
+import argparse, base64, glob, html, json, os, pathlib, plistlib, re, subprocess, sys, time
 
 VSCODE_FAMILY_CLIS = ["cursor", "trae", "windsurf", "codium", "code-insiders", "code"]
 MERMAID_PREVIEW_EXTENSIONS = {"bierner.markdown-mermaid"}  # renders ```mermaid inside the built-in Markdown preview
@@ -73,6 +78,27 @@ def install_from_exe(exe):
         if (d / "bin").is_dir() and any((d / "bin" / c).exists() for c in VSCODE_FAMILY_CLIS):
             return str(d), "dir"
     return None, None
+
+
+CLAUDE_APP_ENTRYPOINTS = {"claude-desktop"}
+CLAUDE_APP = re.compile(r"/Claude\.app/Contents/")
+
+
+def claude_app():
+    """How Claude Code was found to run inside the Claude desktop app, or None (editor terminal, plain terminal)."""
+    ep = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    if ep in CLAUDE_APP_ENTRYPOINTS:
+        return f"CLAUDE_CODE_ENTRYPOINT={ep}"
+    pid, seen = os.getppid(), 0
+    while pid and pid > 1 and seen < 25:
+        exe = proc_exe(pid) or ""
+        if CLAUDE_APP.search(exe):
+            return f"process ancestry (pid {pid})"
+        root, _ = install_from_exe(exe)
+        if root and not re.search(r"(Terminal|iTerm|Warp|Alacritty|kitty|WezTerm|Ghostty|Hyper)\.app$", root):
+            return None  # an editor hosts this shell — it wins
+        pid, seen = parent(pid), seen + 1
+    return None
 
 
 def editor_from_ancestry():
@@ -144,6 +170,11 @@ def describe(root, kind):
 
 
 def detect(project):
+    how = claude_app()
+    if how:
+        return {"status": "ok", "family": "claude-app", "editor": "Claude app", "cli": None, "detected_via": how,
+                "note": "no editor tabs: diagrams are shown in the app (view → app-view.html → Artifact tool); "
+                        "file jumps and diff tabs are skipped — show the hunk in chat instead"}
     for finder in (editor_from_ancestry, lambda: editor_from_ide_lock(project)):
         root, kind, how = finder()
         if root:
@@ -277,6 +308,41 @@ def open_tabs(tabs, info):
             "stderr": err[:300] or None}
 
 
+APP_PAGE = "app-view.html"
+
+
+def app_page(folder, tabs):
+    """One self-contained page (no scripts, no external files) with every diagram tab, for the Claude app."""
+    folder = pathlib.Path(folder)
+    cards = []
+    for f in map(pathlib.Path, tabs):
+        kind, _, name = f.stem.partition("-")
+        label = (name.replace("-", " ") + (" — before | live / after" if kind == "compare" else "")).strip()
+        data = base64.b64encode(f.read_bytes()).decode()
+        cards.append(f'<section><h2>{html.escape(label)}</h2><div class="frame">'
+                     f'<img alt="{html.escape(label)} diagram" src="data:image/svg+xml;base64,{data}"></div></section>')
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>EI Flow Diagrams</title>
+<style>
+:root{{--bg:#f6f7f9;--fg:#1d2330;--muted:#5b6474;--card:#ffffff;--line:#d9dde4}}
+@media (prefers-color-scheme: dark){{:root:not([data-theme="light"]){{--bg:#14171c;--fg:#e6e9ef;--muted:#9aa3b2;--card:#1d2128;--line:#2c323c}}}}
+:root[data-theme="dark"]{{--bg:#14171c;--fg:#e6e9ef;--muted:#9aa3b2;--card:#1d2128;--line:#2c323c}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
+main{{max-width:1600px;margin:0 auto;padding:20px 16px 40px}}
+h1{{font-size:20px;margin:0 0 4px}} p{{margin:0 0 20px;color:var(--muted)}}
+section{{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:0 0 18px}}
+h2{{font-size:15px;margin:0 0 10px;text-transform:capitalize}}
+.frame{{overflow-x:auto;background:#fff;border-radius:6px}}
+.frame img{{display:block;width:100%;min-width:720px;height:auto}}
+</style></head><body><main><h1>Flow diagrams</h1>
+<p>Before on the left, live or after on the right — added green, removed red dashed, changed amber. Updated {html.escape(time.strftime("%H:%M:%S"))}.</p>
+{"".join(cards)}</main></body></html>"""
+    out = folder / APP_PAGE
+    out.write_text(page, encoding="utf-8")
+    return str(out)
+
+
 def view(files, project):
     """Show the diagrams inside the editor, and only there: every compare-*.svg (BEFORE | LIVE/AFTER side by side,
     differences highlighted) and diagram-*.svg as ordinary image tabs. Never a browser, never an HTML page or a URL —
@@ -288,7 +354,14 @@ def view(files, project):
     if not tabs:
         print(json.dumps({"status": "error", "reason": "no compare-*.svg / diagram-*.svg in the folder — render first"}))
         return 2
-    res = open_tabs(tabs, detect(project))
+    info = detect(project)
+    if info.get("family") == "claude-app":
+        page = app_page(pathlib.Path(tabs[0]).parent, tabs)
+        print(json.dumps({"status": "app", "where": "Claude app", "detected_via": info["detected_via"], "page": page,
+                          "tabs": tabs, "next": "publish this page with the Artifact tool (same file path every time, so "
+                          "it updates in place); re-run view and republish after each re-render"}, indent=2))
+        return 0
+    res = open_tabs(tabs, info)
     if not res:
         print(json.dumps({"status": "not_opened", "reason": "the detected editor has no command-line way to open image tabs; "
                           "nothing was opened outside the editor", "tabs": tabs}, indent=2))

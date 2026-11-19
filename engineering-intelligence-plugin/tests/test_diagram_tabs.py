@@ -107,6 +107,61 @@ class TabsTest(unittest.TestCase):
         self.assertIsNone(O.tab_files(str(self.d / "compare-rating.svg")))
 
 
+class ClaudeAppTest(unittest.TestCase):
+    """In the Claude desktop app there is no editor: view writes one self-contained page for the app instead of tabs."""
+    SCRIPT = HERE.parent / "skills" / "run" / "scripts" / "open_in_editor.py"
+
+    def setUp(self):
+        self.d = pathlib.Path(tempfile.mkdtemp(prefix="ei-app-"))
+        (self.d / "compare-rating.svg").write_text(fake_svg("c", "AB", [("A", "B")]))
+        (self.d / "diagram-overview.svg").write_text(fake_svg("o", "X", []))
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def run_view(self, entrypoint):
+        import json, os, subprocess
+        env = {**os.environ, "CLAUDE_CODE_ENTRYPOINT": entrypoint}
+        p = subprocess.run([sys.executable, "-I", str(self.SCRIPT), "view", str(self.d)], capture_output=True, text=True, env=env)
+        return p.returncode, json.loads(p.stdout)
+
+    def test_app_writes_one_self_contained_page(self):
+        code, res = self.run_view("claude-desktop")
+        self.assertEqual((code, res["status"]), (0, "app"))
+        page = pathlib.Path(res["page"])
+        self.assertEqual(page, (self.d / "app-view.html").resolve())
+        text = page.read_text()
+        self.assertEqual(text.count("data:image/svg+xml;base64,"), 2, "every tab embedded")
+        self.assertLess(text.index("rating"), text.index("overview"), "compare views first")
+        self.assertNotRegex(text, r"<script|https?://", "nothing loaded from outside")
+        self.assertIn("<title>", text)
+        self.assertIn("prefers-color-scheme: dark", text)
+        self.assertIn("Artifact tool", res["next"])
+
+    def test_detect_reports_the_app(self):
+        import os
+        old = os.environ.get("CLAUDE_CODE_ENTRYPOINT")
+        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "claude-desktop"
+        try:
+            info = O.detect(None)
+        finally:
+            if old is None:
+                os.environ.pop("CLAUDE_CODE_ENTRYPOINT")
+            else:
+                os.environ["CLAUDE_CODE_ENTRYPOINT"] = old
+        self.assertEqual((info["family"], info["cli"]), ("claude-app", None))
+
+    def test_claude_app_in_ancestry(self):
+        self.assertTrue(O.CLAUDE_APP.search("/Applications/Claude.app/Contents/MacOS/Claude"))
+        self.assertFalse(O.CLAUDE_APP.search("/Applications/Trae.app/Contents/MacOS/Electron"))
+
+    def test_editor_terminal_never_gets_a_page(self):
+        import os, unittest.mock as m
+        with m.patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "cli"}), m.patch.object(O, "proc_exe", return_value="/Applications/Trae.app/Contents/MacOS/Electron"):
+            self.assertIsNone(O.claude_app())
+        self.assertFalse((self.d / "app-view.html").exists())
+
+
 class LiveStepTest(unittest.TestCase):
     """The latest LIVE step is compared with the previous render (not BEFORE) and marked NOW in blue."""
     def setUp(self):

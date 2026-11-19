@@ -2,7 +2,7 @@
 """Run a CodeRabbit CLI review and stream human-readable live progress, one line per event.
 
 Usage (run it under the Monitor tool so every printed line reaches the developer as it happens):
-  python3 -I watch_review.py --raw <scratch>/review-<n>.ndjson -- "<cli>" review --agent --uncommitted [--dir <d>] ...
+  python3 -I watch_review.py --raw <scratch>/review-<n>.ndjson -- "<cli>" review --agent --deep [-c <rule files>] --uncommitted [--dir <d>] ...
 
 Prints (stdout, line-buffered):
   TARGET   <n> file(s) sent for review: <path> (+a/-d), ...   (from git, before the run starts)

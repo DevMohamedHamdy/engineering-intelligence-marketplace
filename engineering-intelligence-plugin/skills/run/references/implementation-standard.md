@@ -8,7 +8,12 @@ The goal: code that follows current best practice for the project's stack, in th
 
 - **Never go outside the ticket or what the developer asked for.** No extra features, fixes, refactors, cleanups, renames, or "while I'm here" improvements — not in the code, not in tests, not in config. Anything else you notice goes in **one follow-up line** in chat; it is never done.
 - If the request can't be done without touching something outside it, stop and ask (one question) — don't decide alone.
-- **Don't overthink.** Take the most direct reading of the request and do it. No exploring alternative designs, hypothetical edge cases the ticket doesn't raise, or future needs. Read only what the change needs, decide, act. Keep explanations short.
+- **Don't overthink — a hard rule, the same for Feature, Fix, and Refactor.** Take the most direct reading of the request and do it. Read only what the change needs, decide, act. Concretely:
+  - **One approach.** Plan and build the single most direct solution. Don't list alternatives unless a real material decision exists (`decision-records.md` §1) or the developer asks.
+  - **Only the edge cases the ticket or the code in scope raises.** No handling for hypothetical inputs, future needs, or "just in case" paths.
+  - **No extra questions.** Don't ask what the request, the ticket, or the code already answers.
+  - **Short.** Plans, explanations, and summaries say what is needed, nothing more.
+- **This section has no exceptions.** A §0 violation can never be listed as an accepted exception: it is fixed (removed) before the Review Gate, and `Standard: met` cannot be claimed while one remains.
 
 ## 1. Simplest thing that works
 
@@ -40,7 +45,7 @@ The goal: code that follows current best practice for the project's stack, in th
 
 ## 4. Where it is enforced
 
-- **Plan Gate:** add one line — `Standard: <key choices, e.g. "uses existing useQuery hook, no new deps, React Navigation v7 API">`. Fix posts the same line with its root cause.
+- **Plan Gate:** add one line — `Standard: <key choices, e.g. "uses existing useQuery hook, no new deps, React Navigation v7 API">`. Fix posts the same line with its root cause. Before posting, cut every plan step that §0 doesn't allow (an unrequested edge case, an alternative, an extra).
 - **Implementation:** write to this standard from the first edit.
-- **Review loop:** a violation of §1–3 inside the Implementation Scope is a `VALID` finding (severity by consequence; over-engineering and deprecated APIs are at least `MEDIUM`). Fixing it follows the normal fix policy.
-- **Review Gate:** one line — `Standard: met` or the exceptions with reason. `change_log.py check` flags formatting-only hunks and reformatted existing lines as blockers (not complete) unless the developer asked for the formatting.
+- **Review loop:** a violation of §0–3 inside the Implementation Scope is a `VALID` finding (severity by consequence; overthinking — code for edge cases, options, or needs the request doesn't raise — over-engineering, and deprecated APIs are at least `MEDIUM`). Fixing it follows the normal fix policy; a §0 finding is never rejected as a preference.
+- **Review Gate:** one line — `Standard: met` or the exceptions with reason (§0 never: see above). `change_log.py check` flags formatting-only hunks and reformatted existing lines as blockers (not complete) unless the developer asked for the formatting.

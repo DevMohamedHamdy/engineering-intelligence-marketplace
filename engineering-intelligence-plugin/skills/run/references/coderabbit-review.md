@@ -13,10 +13,12 @@
 The orchestrator drives the **CodeRabbit CLI directly** through the shell, in agent mode, because it gives a deterministic, parseable result:
 
 ```
-"<validated-cli-path>" review --agent --uncommitted          # default target
-"<validated-cli-path>" review --agent --committed [--base <branch> | --base-commit <sha>]
+"<validated-cli-path>" review --agent --deep [-c <rule files>] --uncommitted          # default target
+"<validated-cli-path>" review --agent --deep [-c <rule files>] --committed [--base <branch> | --base-commit <sha>]
 ```
 
+- **Always `--deep` (developer's standing rule — the local review must catch what `@coderabbit review` catches on a PR).** Without it the CLI uses its lighter local policy and misses findings the PR review reports. `--deep` applies the full pull-request review policy. Never drop it to save time; if the CLI rejects it (`review --help` lacks `--deep`), status is `UNSUPPORTED (--deep)` — say so and run the Claude fallback in addition, never a silent light review.
+- **Always pass the project's rules with `-c`**: every file that exists among `.coderabbit.yaml`/`.coderabbit.yml`, `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, and the team-conventions file recorded in discovery. These are the rules the PR review would apply; without them conventions go unchecked.
 - Use the **named scope flags** (`--uncommitted`, `--committed`). `-t uncommitted` / `-t committed` are hidden compatibility aliases in current CLIs; use them only if `review --help` lacks the named flags.
 - Optional, only when part of the approved target: `--include-untracked` (not with `--committed`), `--dir <path>` (inside the git work tree), `--fresh` (no checkpoint reuse — **only when the developer asks for a full re-review**; re-reviews are incremental, §5).
 - Never add `--use-credits` (authorizes spending), `--api-key`, `--region`, or `--remote` unless the developer explicitly approves that specific use.
@@ -54,6 +56,7 @@ Default target: **uncommitted local changes** — staged + unstaged edits to tra
 | Subdirectory only | add `--dir <path>` | Narrows, never broadens. |
 
 Rules:
+- **Coverage check (every run):** compare the files the result says it reviewed against `git diff HEAD --name-only` (plus approved new files). Any changed file missing → the run did **not** cover the change: say which files, and review them (CodeRabbit with the right target, else `CLAUDE FALLBACK`). Never report "clean" for files CodeRabbit didn't see. `--dir` must contain every changed file — never use it to cut changed files out.
 - **Never silently broaden or narrow** the target. Selecting a different target — including adding `--include-untracked`, dropping `--dir`, or switching to the default (no selector, which also covers committed changes) — needs the developer's approval.
 - **New files:** if the Implementation Scope creates files, `--uncommitted` alone will not review them. At the Plan Gate, list the untracked files that `--include-untracked` would also transmit and ask. (Alternative: the developer approves `git add --intent-to-add <new files>` so they become tracked; whether the CLI then includes them is **unverified** — check the reviewed file list in the result.)
 - **Pre-existing changes:** if discovery found uncommitted changes outside the Implementation Scope, they would be reviewed (and transmitted) too. Tell the developer at the Plan Gate; options: narrow with `--dir`, let the developer stash/commit them themselves, or accept. Findings on them are `OUT OF SCOPE`.
@@ -79,7 +82,7 @@ The developer wants to see, while CodeRabbit runs, what it is reviewing and wher
 3. **Relay every event to the developer as it lands** — one short chat line each:
    - `PHASE` → "CodeRabbit: <phase> · <t>s".
    - `WORKING` → relay at most every ~2 min ("still <phase>, <k> findings so far").
-   - `FINDING` → "CodeRabbit flagged <SEVERITY> at `file:line` — <title>", show that hunk (±5 lines of the current file) in the terminal, and move the editor to it: `open_in_editor.py goto --project <root> <file>:<line>`. Don't validate or fix yet — keep following until the run ends. If many findings arrive together, show the hunk for each major one and list the rest in one line each.
+   - `FINDING` → "CodeRabbit flagged <SEVERITY> at `file:line` — <title>", show that hunk (±5 lines of the current file) in the terminal, and move the editor to it: `open_in_editor.py goto --project <root> <file>:<line>` (Claude app — `detect` family `claude-app`: no editor, the hunk in chat is enough). Don't validate or fix yet — keep following until the run ends. If many findings arrive together, show the hunk for each major one and list the rest in one line each.
    - `ACTION` → stop and ask (paid continuation, §3 table). `ERROR` / `EXIT` with `complete=no` → failed run; fallback rules apply.
 4. **While it runs, do not edit any file in its target.** You may read code, prepare the validation of findings already received, or implement a unit that touches different files.
 5. **When `EXIT` arrives:** the raw NDJSON file (`--raw`) is the source of truth — parse it per the table below (the script's lines are a display aid), cross-check the `complete` count, then validate (§4), run the severity-gated flow (§6), and give the report (§6.5, and the Review Gate summary at the end).
@@ -142,7 +145,7 @@ Per logical unit:
 1. Review the unit (CodeRabbit, else CLAUDE FALLBACK) → validate and classify.
 2. Apply the fixes allowed by the mode (§6), inside the Implementation Scope.
 3. Run targeted tests/checks from the approved Verification Scope.
-4. **Incremental re-review — only the fix delta** (developer's rule: re-reviews must be fast). Run the same command and target **without `--fresh` and without `--gate`** (`--gate` forces a fresh review). The CLI then reuses its previous local checkpoint and reviews only what changed since the last run — i.e. the fixes. Never re-review the whole diff after a fix. Under `CLAUDE FALLBACK`, review only the hunks edited in this iteration (record `git diff` before fixing and compare), not the full diff.
+4. **Incremental re-review — only the fix delta** (developer's rule: re-reviews must be fast). Run the same command and target — still `--deep` and the same `-c` files — **without `--fresh` and without `--gate`** (`--gate` forces a fresh review). The CLI then reuses its previous local checkpoint and reviews only what changed since the last run — i.e. the fixes. Never re-review the whole diff after a fix. Under `CLAUDE FALLBACK`, review only the hunks edited in this iteration (record `git diff` before fixing and compare), not the full diff.
    - Check the result's reviewed files: they should be the fixed files. If the CLI reports no checkpoint (e.g. it was cleared) and would review everything, say so in one line and continue — don't add `--fresh`.
    - Findings from an incremental run on code that the fixes did not touch are reconciled with earlier findings (§7.3), not treated as new.
 5. Repeat until no `VALID` findings at `MEDIUM` or above remain for the unit, or a limit is hit.
@@ -211,7 +214,7 @@ Then list `NEEDS INVESTIGATION` / `OUT OF SCOPE` items in one line each. Fill th
 
 After all units are done:
 1. Read the complete local diff for the approved target.
-2. **Final full-diff review.** *Feature and Fix:* once the code is final, run **one full `--fresh` review of the final diff** (restored after 0.13.1 dropped it: incremental runs see only their deltas, and unchanged callers never), then the **independent system-aware review** (`system-impact.md` §8: `impact_check.py brief` → fresh read-only subagent). Record both with `impact_check.py review` against the exact diff; a later code change makes them stale. If CodeRabbit is unavailable/failed: `CLAUDE FALLBACK` on the full final diff, keeping the failure details. *Refactor:* no extra full review — the first review covered the full diff and each incremental re-review covered its fix delta; run a full `--fresh` review only if the developer asks or a change was never reviewed.
+2. **Final full-diff review — every code-changing task (Feature, Fix, Refactor).** Once the code is final, run **one full `--deep --fresh` review of the final diff** with the same `-c` files — the local equivalent of `@coderabbit review` on the PR (incremental runs see only their deltas, so findings that span fixes are missed otherwise). Pass the coverage check (§2). *Feature and Fix* then also run the **independent system-aware review** (`system-impact.md` §8: `impact_check.py brief` → fresh read-only subagent). Record both with `impact_check.py review` against the exact diff; a later code change makes them stale. If CodeRabbit is unavailable/failed: `CLAUDE FALLBACK` on the full final diff, keeping the failure details.
 3. Reconcile with intermediate findings: same issue → merge history; previously fixed → confirm still fixed; previously rejected → keep the reason unless new evidence appears.
 4. Apply the fix loop (§4–6) to new findings. If any fix is applied, run one more **incremental** re-review of that fix — within the iteration limit. At the limit, report that the last fix was **not** re-reviewed.
 5. Every unresolved `CRITICAL`/`HIGH` is listed as blocking or as a developer decision — never dropped.
