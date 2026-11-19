@@ -102,6 +102,34 @@ call site:
    {"ref": "…", "chain": "…", "enforced": "unknown", "question": "Q-003"}]}
 ```
 
+### 3a. Availability flags — the same rule on every path
+
+When the ticket or contract adds an availability / enablement flag (`isAvailable`, `isEnabled`, `disabled`…) or the
+change starts honoring one, the "guarded actions" are every place that **picks, defaults to, selects, or submits** an
+item of that type — not only the screen in the ticket. List them before planning:
+
+```bash
+python3 -I <skill-dir>/scripts/rule_sites.py sites --project <root> --flag isAvailable --type IPaymentMethod
+```
+
+It reports first-item picks (`methods[0]`), `getDefault…` calls, `setSelected…` / `handleSelect…` calls, and
+**literal id fallbacks anywhere in the repo** (`selectedPaymentMethod?.id || 1`), each with whether the flag (or a
+predicate that checks it) appears nearby. Record a guard with `"flag"` (and `"flag_types"` when several types declare
+it); the validator then requires an entry point for **every** listed site — `enforced: yes` (filtered upstream counts:
+cite where), `no`, or `unknown`:
+
+```json
+{"action": "select / default / submit a payment method", "guard": "isMethodAvailable", "flag": "isAvailable",
+ "flag_types": ["IPaymentMethod"], "guard_location": "src/hooks/usePayments.ts:170", "criteria": ["AC-1"],
+ "entry_points": [{"ref": "src/hooks/usePaymentsHandler.ts:441", "chain": "submitOrder → placeOrder(paymentMethodId)",
+                   "enforced": "no", "evidence": "falls back to id 1 (Cash) when nothing is selected"}]}
+```
+
+At the Review Gate, a diff that starts honoring a flag with no such guard is a blocker, and the flag checked inline in
+several files is a warning (one predicate — `implementation-standard.md` §1). Measured on PR #716: the scan listed the
+delivery default, the pickup default, the platform fallback, the saved-card select, and three `|| 1` submit fallbacks —
+the paths four hosted review rounds found one at a time (two of the fallbacks no reviewer found).
+
 `enforced: no` is an **unguarded path**: shown at the Plan Gate, a blocker at the Review Gate unless fixed or accepted
 in an approved decision (`accepted_by: D-…`). `unknown` stays listed. Coverage is reported as
 `COMPLETE (static search; see limitations)` only when every discovered site is enforced; the static-search limits

@@ -37,6 +37,7 @@ import decision_records as DR  # noqa: E402
 import diagram_lint as DL  # noqa: E402
 import evidence_ledger as EL  # noqa: E402
 
+EXTERNAL_Q = DR.EXTERNAL_KINDS
 PRESERVE = re.compile(r"\b(keeps?|kept|preserv\w*|unchanged|no (?:behaviou?r|functional) changes?|same behaviou?r|as before|"
                       r"still (?:works|behaves) the same|retains?|untouched)\b", re.I)
 SCOPE_ONLY = re.compile(r"\b(?:only (?:affects?|applies(?: to)?|impacts?|matters for|changes? (?:it )?for)|(?:affects?|applies to|impacts?) only)\b", re.I)
@@ -508,6 +509,19 @@ def pr_markdown(session, title=None):
             why = e.get("why") or {}
             L.append(f"- {e['change'].lower()} {e['what']} (`{e['where']}`)" + (f" — {why.get('text')}" if why.get("text") else " — ⚠ no sourced reason"))
     L += ["", "## Reviewer Notes", ""]
+    contract = [q for q in dec.get("questions", []) if q["status"] == "ANSWERED" and q.get("kind") in EXTERNAL_Q]
+    if contract:
+        L += ["**API contract this change relies on**", ""]
+        for q in contract:
+            a = q.get("answer") or {}
+            ev = "; ".join(f"{x.get('kind')}: {x.get('ref') or x.get('source') or ''}".strip() for x in a.get("evidence") or [])
+            L.append(f"- {q['id']} {q['question']} → {a.get('text')}" + (f" ({ev})" if ev else ""))
+        L.append("")
+    extra = [e for e in (changes or {}).get("entries", []) if (e.get("why") or {}).get("source") in ("standard", "developer")]
+    if extra:
+        L += ["**Changes the ticket didn't ask for**", ""]
+        L += [f"- {e['change'].lower()} {e['what']} (`{e['where']}`) — {(e.get('why') or {}).get('text')}" for e in extra]
+        L.append("")
     sym = [s for s in (imp or {}).get("symbols", []) if s.get("changes_contract", True)]
     if sym:
         L += ["**Behavior and contract changes**", ""]
@@ -543,6 +557,10 @@ def pr_markdown(session, title=None):
     ex = [f for f in dec.get("findings", []) if f.get("disposition") == "EXPLAINED"]
     if ex:
         L += ["**Why it is done this way**", ""] + [f"- `{f.get('ref')}` {f['title']}: {f['explanation']}" for f in ex] + [""]
+    oos = [f for f in dec.get("findings", []) if f.get("classification") == "OUT_OF_SCOPE"]
+    if oos:
+        L += ["**Known issues outside this PR** (found during review, existed before it, left on purpose)", ""]
+        L += [f"- `{f.get('ref')}` {f['title']} — {f.get('reason')}" for f in oos] + [""]
     lim = []
     for s in (imp or {}).get("symbols", []):
         lim += [f"`{c['ref']}`: {c['impact']}" for c in s.get("consumers") or [] if (c.get("impact") or "").upper().startswith("UNKNOWN")]
@@ -572,6 +590,9 @@ def pr_check(session, text):
     P = []
     if not re.search(r"^#+\s*Reviewer Notes", text, re.M | re.I):
         P.append("no 'Reviewer Notes' section")
+    for q in dec.get("questions", []):
+        if q["status"] == "ANSWERED" and q.get("kind") in EXTERNAL_Q and q["id"] not in text:
+            P.append(f"{q['id']} (answered {q['kind']} question) is not stated — reviewers need the API contract the change relies on")
     for q in dec.get("questions", []):
         if q["status"] in ("OPEN", "DEFERRED") and q["id"] not in text:
             P.append(f"{q['id']} ({q['status']}) is not listed — open questions must appear in the PR")

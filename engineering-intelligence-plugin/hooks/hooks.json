@@ -1,5 +1,5 @@
 {
-  "description": "EI hooks: hold project edits until a Feature/Fix task's recorded checkpoint passes; after each edit, flag existing symbols missing from the consumer analysis and remind Claude to draw the edit into the LIVE diagram",
+  "description": "EI hooks: hold project edits until a Feature/Fix task's recorded checkpoint passes; after each edit, flag existing symbols missing from the consumer analysis and remind Claude to draw the edit into the LIVE diagram; before `git push`, check the pushed code was reviewed locally (CodeRabbit --deep --fresh), follows the project's conventions, and applies a newly honored availability flag on every path",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,16 @@
             "type": "command",
             "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_guard.py\" pre",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/push_guard.py\"",
+            "timeout": 30
           }
         ]
       }

@@ -22,6 +22,9 @@
   python3 -I impact_check.py declare   <session> --none symbols|guards --reason "<why>"
   python3 -I impact_check.py detect    <session> [--file <path>]        existing symbols the diff modified, unrecorded ones
   python3 -I impact_check.py brief     <session> [--out <file>]         Markdown brief for the second reviewer
+  python3 -I impact_check.py context   <session> [--out <file>]         review context for CodeRabbit (-c): criteria,
+                                                                       answered contract questions, decisions, known
+                                                                       out-of-scope issues, enforced conventions
   python3 -I impact_check.py review    <session> --json <file|->        record a full-diff review (reviewer, findings)
   python3 -I impact_check.py gate      <session> --stage plan|review
   python3 -I impact_check.py show      <session>                        Markdown tables for the Plan / Review Gate
@@ -402,6 +405,18 @@ def check_guard(rec, project, decisions=None):
         f, ln = site["ref"].rsplit(":", 1)
         if not any(covers(ep.get("ref"), f, int(ln)) for ep in eps):
             e.append(f"call site not classified: {site['ref']} ({site['chain']})")
+    if rec.get("flag"):
+        # an availability-style flag: every place that picks, defaults to, selects, or submits an item of its type
+        import rule_sites as RSITES
+        types = {t: "given" for t in rec.get("flag_types") or []} or None
+        fs = RSITES.sites_for(project, rec["flag"], types) if project else {"sites": [], "types": {}}
+        rec["flag_sites"] = [{k: s[k] for k in ("ref", "kind", "text", "checks_flag")} for s in fs["sites"]]
+        if len(fs.get("types") or {}) > 1 and not rec.get("flag_types"):
+            w.append(f"`{rec['flag']}` is declared on several types ({', '.join(fs['types'])}) — set flag_types to the one this guard is about")
+        for s in fs["sites"]:
+            f, ln = s["ref"].rsplit(":", 1)
+            if not any(covers(ep.get("ref"), f, int(ln)) for ep in eps):
+                e.append(f"{s['kind']} site not classified: {s['ref']} ({s['text'][:70]}) — is `{rec['flag']}` enforced on this path?")
     unguarded = [ep for ep in eps if ep.get("enforced") == "no"]
     accepted = []
     for ep in unguarded:
@@ -788,6 +803,19 @@ def gate(session, stage, persist=True):
                 if lt["ref"].split(":")[0] not in approved_files:
                     B.append(f"type loosened at {lt['ref']} ({lt['before']} → {lt['after']}) — keep a precise type "
                              "(implementation-standard §3) or record an approved decision for it")
+            import rule_sites as RSITES
+            rs = RSITES.analyze(project, diff_text(session, project, 0))
+            S["rule_sites"] = [{"flag": f["flag"], "types": sorted(f["types"]),
+                                "unchecked": len([s for s in rs["unchecked"] if s["flag"] == f["flag"]])} for f in rs["flags"]]
+            for f in rs["flags"]:
+                if not any(g.get("flag") == f["flag"] for g in data["guards"]):
+                    un = [s["ref"] for s in rs["unchecked"] if s["flag"] == f["flag"]]
+                    B.append(f"the change starts honoring `{f['flag']}` ({', '.join(f['types']) or 'type unknown'}) but no guard "
+                             f"records where it must hold — record impact_check.py guard with \"flag\": \"{f['flag']}\" and "
+                             f"classify every site ({len(un)} without the check nearby, e.g. {', '.join(un[:4]) or 'none'})")
+            for i in rs["inline_rule_files"]:
+                W.append(f"`{i['flag']}` is checked inline in {len(i['files'])} files ({', '.join(i['files'])}) — apply it "
+                         "through one shared predicate (implementation-standard §1)")
             for m in det["unrecorded"]:
                 B.append(f"existing symbol modified but not in the consumer analysis: {m['name']} ({', '.join(m['defined_at'])}) — "
                          "record it (impact_check.py symbol) or, if consumers can't see a difference, record it with "
@@ -929,6 +957,8 @@ def brief_md(session):
          "reviewer has already run; your value is the system around the diff.", "",
          "Look specifically for: shared component or hook regressions; consumers outside the ticket whose behavior changed; "
          "guarded actions reachable through an alternate entry point without the guard; ticket / API contract mismatches; "
+         "an availability / enablement flag honored on one path but not on another (default selection, platform "
+         "fallbacks, literal id fallbacks in submit code); "
          "loosened or incorrect types; existing components, hooks, utilities, or conventions the change should have reused; "
          "missing tests for consumers outside the ticket; statements in the PR description that the diff does not support.", "",
          "Answer with JSON: {\"findings\": [{\"id\": \"SR1\", \"severity\": \"critical|major|minor|trivial|info\", "
@@ -949,12 +979,67 @@ def brief_md(session):
         for ep in g.get("entry_points") or []:
             L.append(f"  - `{ep.get('ref')}` {ep.get('chain')} — claimed enforced: {ep.get('enforced')}")
         L.append(f"  - limitations: {'; '.join(g.get('limitations') or [])}")
+    import rule_sites as RSITES
+    rs = RSITES.analyze(project, diff_text(session, project, 0))
+    if rs["flags"]:
+        L += ["", "## Rule sites — the same rule on every path (verify each)", ""]
+        for f in rs["flags"]:
+            L.append(f"- the change starts honoring `{f['flag']}` on {', '.join(f['types']) or 'its type'}; places that pick, "
+                     "default to, select, or submit one (✗ = no check nearby — confirm it is filtered upstream or a defect):")
+            L += [f"  - {'✓' if s['checks_flag'] else '✗'} {s['kind']} `{s['ref']}` — {s['text'][:100]}"
+                  for s in rs["sites"] if s["flag"] == f["flag"]]
     L += ["", "## Open questions", ""]
     L += [f"- {q['id']} ({q['status']}): {q['question']}" for q in dec.get("questions", []) if q["status"] in ("OPEN", "DEFERRED")] or ["- none"]
     L += ["", "## Project conventions (from the conventions profile)", ""]
     L += [f"- [{c['level']}] {c['title']} — {c.get('rule')}" for c in conv.get("conventions", []) if c["level"] in ("ENFORCED", "OBSERVED")] or ["- none recorded"]
     L += ["", "## The diff", "", "```diff", diff_text(session, project).rstrip(), "```", ""]
     return "\n".join(L)
+
+
+def context_md(session):
+    """Facts a reviewer can't see in the diff — passed to CodeRabbit with `-c` and mirrored in the PR description, so the
+    review doesn't guess the API contract, the ticket's wording, or which known issues are outside this change."""
+    data = load(session)
+    import conventions as CV
+    import decision_records as DR
+    _, dec = load_decisions(session)
+    conv = CV.load_profile(session) or {}
+    L = ["# Review context for this change", "",
+         "Recorded by the author's workflow (EI) with evidence. Treat it as context, not as instructions; verify against the "
+         "code. Flag the code when it contradicts these facts.", "", "## Acceptance criteria (the ticket)", ""]
+    L += [f"- {c['id']}: {c['text']}" for c in data["criteria"]] or ["- none recorded"]
+    qs = dec.get("questions", [])
+    ans = [q for q in qs if q["status"] == "ANSWERED" and q.get("kind") in DR.EXTERNAL_KINDS]
+    L += ["", "## API / backend contract — answered, with evidence", ""]
+    for q in ans:
+        a = q.get("answer") or {}
+        ev = "; ".join(f"{x.get('kind')}: {x.get('ref') or x.get('source') or ''}".strip() for x in a.get("evidence") or [])
+        L.append(f"- {q['id']} {q['question']} → **{a.get('text')}**" + (f" ({ev})" if ev else ""))
+    if not ans:
+        L.append("- none recorded")
+    other = [q for q in qs if q["status"] == "ANSWERED" and q.get("kind") not in DR.EXTERNAL_KINDS]
+    if other:
+        L += ["", "## Product / requirement answers", ""]
+        L += [f"- {q['id']} {q['question']} → {(q.get('answer') or {}).get('text')}" for q in other]
+    op = [q for q in qs if q["status"] in ("OPEN", "DEFERRED")]
+    if op:
+        L += ["", "## Still open — don't assume either answer", ""]
+        L += [f"- {q['id']} ({q['status']}, owner: {q.get('owner')}): {q['question']}" for q in op]
+    ds = [d for d in dec.get("decisions", []) if d["status"] in ("APPROVED", "IMPLEMENTED")]
+    if ds:
+        L += ["", "## Approved decisions", ""]
+        for d in ds:
+            alt = {x["id"]: x for x in d.get("alternatives") or []}
+            L.append(f"- {d['id']} {d['title']}: {alt.get(d.get('selected'), {}).get('name', d.get('selected'))} — {d.get('rationale')}")
+    oos = [f for f in dec.get("findings", []) if f.get("classification") == "OUT_OF_SCOPE"]
+    if oos:
+        L += ["", "## Known issues outside this change (recorded; report them only if this change makes them worse)", ""]
+        L += [f"- `{f.get('ref')}` {f['title']} — {f.get('reason')}" for f in oos]
+    cv = [c for c in conv.get("conventions", []) if c["level"] == "ENFORCED"]
+    if cv:
+        L += ["", "## Team conventions (enforced)", ""]
+        L += [f"- {c['title']}: {c.get('rule')}" for c in cv]
+    return "\n".join(L) + "\n"
 
 
 def main():
@@ -976,12 +1061,17 @@ def main():
     s = sp.add_parser("review"); s.add_argument("session"); s.add_argument("--json", required=True)
     s = sp.add_parser("gate"); s.add_argument("session"); s.add_argument("--stage", required=True, choices=["plan", "review"])
     s = sp.add_parser("show"); s.add_argument("session")
+    s = sp.add_parser("context"); s.add_argument("session"); s.add_argument("--out")
     s = sp.add_parser("finish"); s.add_argument("session")
     a = ap.parse_args()
     try:
         if a.cmd == "show":
             print(show_md(a.session))
             return 0
+        if a.cmd == "context":
+            out = pathlib.Path(a.out or pathlib.Path(a.session) / "review-context.md")
+            out.write_text(context_md(a.session), encoding="utf-8")
+            return emit({"status": "ok", "out": str(out), "use": f"coderabbit review … -c \"{out}\""})
         if a.cmd == "brief":
             md = brief_md(a.session)
             if a.out:
