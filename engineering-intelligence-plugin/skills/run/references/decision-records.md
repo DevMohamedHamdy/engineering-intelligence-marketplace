@@ -88,6 +88,56 @@ Honesty rules (the validator enforces the mechanical ones):
 
 **Shared behavior:** a decision that changes behavior for consumers outside the ticket sets `changes_shared_behavior: true`, gives each alternative a `scope` (`keep`, `global`, `conditional`, …) and lists `side_effects`; the validator refuses it without the keep / global / only-under-the-new-condition options (`system-impact.md` §5).
 
+## 6b. Decision verification gate — the five questions, enforced
+
+Before an important decision is presented or acted on, record what supports it on the decision itself
+(`decision_records.py verify <file> <id> --json - --project <root>`; logic in `scripts/decision_verification.py`). No
+separate store: it lives in `decisions.json` and points at the repository, this file's questions and decisions, the
+evidence ledger (`evidence.json`), the type/lint baseline (`verification.json`), and `impact.json`.
+
+```json
+{"claims": [
+   {"text": "submit falls back to id 1 when nothing is selected", "basis": "VERIFIED_FACT",
+    "source": {"kind": "code", "ref": "src/hooks/usePaymentsHandler.ts:441"}},
+   {"text": "the API always returns COD with isAvailable", "basis": "VERIFIED_FACT",
+    "source": {"kind": "question", "ref": "Q-001"}}],
+ "assumptions": [
+   {"text": "a missing isAvailable means available", "why": "the backend omits it for most methods",
+    "unknown": "whether null is also sent", "impact_if_wrong": "an unavailable method becomes selectable",
+    "how_to_verify": "backend answer or an observed response", "classification": "UNVERIFIED", "material": true,
+    "confirm_by": "backend", "question": "Q-002"}],
+ "conflicts": [{"with": "D-003", "relation": "supersedes", "scope": "checkout submit only",
+                "explanation": "D-003 fell back to cash because COD was omitted; the API now returns availability"}],
+ "checks": [{"what": "submit without a selection is refused", "tool": "unit-test", "expected": "exit 0"},
+            {"what": "every select / default / submit path honors isAvailable", "tool": "entry-point-analysis",
+             "expected": "no unguarded site", "assumptions": ["A1"]}]}
+```
+
+| Question | What the tool enforces |
+|---|---|
+| 1 Real source? | each claim names its source kind (`code`, `config`, `test-file`, `api`, `doc`, `decision`, `question`, `developer`, `tool`) and ref; **`ai` (a previous AI answer) is refused**; a code ref that doesn't exist (file, line range, symbol) is refused — never cite an invented path; an inference states its reasoning |
+| 2 Still current? | code refs are fingerprinted when recorded and re-hashed at every gate: `CURRENT` · `CHANGED_BY_TASK` (still matches the task's starting state — this task's own edit) · `STALE` (changed elsewhere) · `MISSING`. Decisions must still be APPROVED / IMPLEMENTED, questions ANSWERED; tool runs are `DATED` once the repository moved; `api` / `doc` sources are always `DATED (as of checked_at)` — never called current. A STALE source after approval says so: the approval rested on evidence that changed — re-verify and re-confirm |
+| 3 Assumptions? | every assumption the decision lists must be classified (STRONG / WEAK inference, UNVERIFIED, UNKNOWN) with why, what's unknown, impact if wrong, how to verify, who confirms, material or not. Resolved only by strong evidence (VERIFIED), an ANSWERED question (CONFIRMED — a developer may confirm only developer-owned assumptions), a passing check that covers it, or the developer accepting the risk (ACCEPTED_RISK → outcome DEFERRED, never VERIFIED) |
+| 4 Conflicts? | other decisions sharing related files / symbols / business rules, developer constraints (`human --type constraint`), and similar previously rejected alternatives are found automatically; each must be classified (`consistent`, `different-scope`, `supersedes` + scope, `contradicts`). `contradicts` blocks; superseding a confirmed decision or a developer constraint needs the developer's approval of this decision |
+| 5 Verifiable? | each check names the tool and expected result; it starts PLANNED. **PASSED / FAILED only through a record that ran**: an evidence-ledger run (`evidence_ledger.py run`), a baseline comparison (`verify_baseline.py`), or an impact record re-checked live (`G-…` entry points, `S-…` consumers). `check-result <file> <id> <V-id>` records it; the gate re-reads the record every time |
+
+**Outcomes** (`decision_records.py gate <file> --stage plan|review --project <root> [--md]`): VERIFIED ·
+NEEDS_CONFIRMATION · BLOCKED · UNVERIFIABLE · DEFERRED (developer deferred the decision with a note, or accepted the
+risk). At the Review Gate a check still PLANNED blocks ("a plan is not a result"); only unavailable checks →
+UNVERIFIABLE; a high-risk decision needs at least one executed, passing check.
+
+**Risk decides enforcement** (stated with its reasons, no percentages): **HIGH** — security; payments, checkout,
+cards, wallet, prices; authentication, permissions, tokens, secrets; data integrity, migrations, invariants; behavior
+changed for consumers outside the ticket; a related symbol used in > 3 files. **MEDIUM** — other material categories
+or behavior / architecture changes. **LOW** — local, reversible, single-consumer (no record needed). HIGH: anything but
+VERIFIED / DEFERRED blocks. MEDIUM: BLOCKED blocks; NEEDS_CONFIRMATION / UNVERIFIABLE are listed as open (READY WITH
+OPEN QUESTIONS). A declared risk can raise the level, never lower it.
+
+**Where it runs:** Feature / Fix — inside `impact_check.py gate --stage plan|review`, so the edit hold and the Review
+Gate enforce it. Refactor — `decision_records.py gate --stage plan` before the Plan Gate question and `--stage review`
+before the Review Gate; a non-zero exit is reported as a blocker. A new significant decision during implementation is
+added and verified before its code is written; the review stage re-runs every check against the final code.
+
 ## 7. In the report
 
 `decision_records.py report <file> --project <root> --diagrams <dir> [--out <workspace>/decisions.md]` produces the **Engineering Decision Records** section: summary counts (total · proposed · under review · approved · implemented · rejected · deferred · superseded · deviated from plan · raised during execution), then decisions grouped Implemented → Approved → **Proposed / under review — NOT approved** → Deferred → Rejected → Superseded, each with context, selected option, alternatives and reasons, rationale, trade-offs, assumptions, risks, evidence, developer input, approval history, outcome, and full history. It flags evidence that no longer resolves. Run `validate` before the Review Gate (it also validates questions and findings and lists `open_questions`); a decision left PROPOSED/UNDER_REVIEW is listed as an open decision, never as approved. The report adds the *Open-question ledger* and *Review findings and dispositions* tables.

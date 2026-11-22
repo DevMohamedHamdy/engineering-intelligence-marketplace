@@ -210,6 +210,10 @@ than the baseline is NOT COMPARABLE; NOT RUN keeps its reason. For every affecte
 
 ## 9. Gates
 
+Both stages also run the **decision verification gate** (`decision-records.md` §6b): every material decision's
+sources re-checked for freshness, assumptions resolved or accepted, conflicts classified, and — at the review stage —
+its checks actually run. HIGH-risk decisions block unless VERIFIED or DEFERRED.
+
 ```bash
 python3 -I <skill-dir>/scripts/impact_check.py show <session-dir>              # tables for the Plan / Review Gate
 python3 -I <skill-dir>/scripts/impact_check.py gate <session-dir> --stage plan

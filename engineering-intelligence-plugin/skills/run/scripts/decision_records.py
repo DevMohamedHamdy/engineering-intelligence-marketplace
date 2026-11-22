@@ -18,6 +18,14 @@ Usage (every command prints one JSON object; exit 0 ok, 1 refused/invalid, 2 usa
   python3 -I decision_records.py report     <decisions.json> [--project <root>] [--diagrams <dir>] [--out <file.md>]  (final report section)
   python3 -I decision_records.py export     <decisions.json> --format json|md [--out <file>]
 
+Decision verification (decision_verification.py — the five questions, stored on the decision as `verification`):
+  python3 -I decision_records.py verify       <decisions.json> <id> --json <file|-> --project <root>   claims, assumptions,
+                                              conflicts, checks (replaces the block; the previous one stays in history)
+  python3 -I decision_records.py check-result <decisions.json> <id> <V-id> --json <file|-> [--project <root>]
+                                              {"status": "PASSED|FAILED|NOT_RUN|UNAVAILABLE", "evidence": {"ledger": "E-…"}
+                                              | {"baseline": "tsc"} | {"impact": "G-001"}, "reason": "…"}
+  python3 -I decision_records.py gate         <decisions.json> --stage plan|review --project <root> [--ids D-1,D-2] [--md]
+
 Open-question ledger (same file, `questions`): an unresolved question stays OPEN until the exact question is answered
 with evidence (or by an approved decision, where a decision can settle it). A developer preference never closes a
 backend / API contract question.
@@ -34,6 +42,8 @@ gets a classification and a disposition; dismissing one as FALSE_POSITIVE needs 
   python3 -I decision_records.py finding-update <decisions.json> <F-id> --json <file|->
 """
 import argparse, datetime, json, os, pathlib, re, sys, tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 CATEGORIES = ["Architecture", "Design", "Refactoring Strategy", "Dependency", "Data Flow", "State Management",
               "Business Logic", "Testing Strategy", "Error Handling", "Performance", "Security", "Implementation Detail"]
@@ -777,6 +787,35 @@ def approval_line(d):
     return "required — awaiting developer" if d.get("approval_required") else "not required (within approved scope)"
 
 
+def verification_lines(d, project=None, data=None):
+    import decision_verification as DV
+    v = d.get("verification")
+    session = None
+    if not v:
+        lvl, why = DV.risk_of(d)
+        return [f"**Verification:** not recorded · risk {lvl} ({'; '.join(why)})"]
+    r = DV.evaluate(d, data or {"decisions": [d]}, project, session, "review")
+    L = [f"**Verification:** **{r['outcome']}** · risk {r['risk']} ({'; '.join(r['risk_reasons'])}) · recorded {v.get('recorded_at', '')[:19]}"
+         + (f" at {str((v.get('repo') or {}).get('commit'))[:10]}" if v.get("repo") else "")]
+    for c in v.get("claims") or []:
+        s = c.get("source") or {}
+        f = r["freshness"].get(c["id"], {})
+        L.append(f"- claim {c['id']} [{c.get('basis')}] {c.get('text')} — {s.get('kind')}: {s.get('ref') or s.get('quote') or ''}"
+                 f" · {f.get('state', '?')}")
+    for a in v.get("assumptions") or []:
+        L.append(f"- assumption {a['id']} [{a.get('classification')}{', material' if a.get('material') else ''}] {a.get('text')}"
+                 f" — if wrong: {a.get('impact_if_wrong')} · {(a.get('resolution') or {}).get('status', 'OPEN')}"
+                 + (f" · confirm by {a['confirm_by']}" if a.get('confirm_by', 'none') != 'none' else ""))
+    for c in v.get("conflicts") or []:
+        L.append(f"- vs {c.get('with')}: {c.get('relation')} — {c.get('explanation')}")
+    for c in v.get("checks") or []:
+        L.append(f"- check {c['id']} {c.get('tool')}: {c.get('what')} → expected {c.get('expected')} · **{c.get('status')}**"
+                 + (f" ({c['reason']})" if c.get("reason") else ""))
+    for i in r["issues"]:
+        L.append(f"- ⚠ {i['outcome']} ({i['question']}): {i['message']}")
+    return L
+
+
 def render_decision(d, full=True):
     alt = {x["id"]: x for x in d["alternatives"]}
     sel = alt.get(d["selected"], {})
@@ -789,6 +828,8 @@ def render_decision(d, full=True):
         L.append(f"**Why the earlier decision no longer fits:** {d['supersede_reason']}")
     L += ["", f"**Selected:** {sel.get('name', d['selected'])} — {sel.get('description', '')}",
           f"**Why:** {d['rationale']}"]
+    if full:
+        L += [""] + verification_lines(d, data=_RENDER_DATA.get("data"))
     if d.get("only_option_reason"):
         L.append(f"**Only viable option:** {d['only_option_reason']}")
     ai = d.get("ai_recommendation") or {}
@@ -856,6 +897,9 @@ def render_decision(d, full=True):
     return "\n".join(out)
 
 
+_RENDER_DATA = {}  # the whole file, so verification sees the other decisions / questions while rendering one
+
+
 def summary(data):
     ds = data["decisions"]
     count = lambda s: sum(1 for d in ds if d["status"] == s)
@@ -875,6 +919,7 @@ def cmd_show(a):
 
 
 def report_md(data, check=None):
+    _RENDER_DATA["data"] = data
     data.setdefault("questions", []); data.setdefault("findings", [])
     s = summary(data)
     L = ["# Engineering Decision Records", "",
@@ -927,6 +972,67 @@ def cmd_export(a):
     return 0
 
 
+def cmd_verify(a):
+    import decision_verification as DV
+    data = load(a.file)
+    d = find(data, a.id)
+    if not d:
+        return emit({"status": "error", "reason": f"{a.id} not found"}, 1)
+    if d["status"] in ("REJECTED", "SUPERSEDED"):
+        return emit({"status": "refused", "reason": f"{a.id} is {d['status']}"}, 1)
+    v = read_json(a.json)
+    v["_session"] = str(pathlib.Path(a.file).resolve().parent)
+    errs, warns, block = DV.prepare(v, a.project, data, d)
+    if errs:
+        return emit({"status": "invalid", "errors": errs, "warnings": warns,
+                     "conflict_candidates": DV.conflict_candidates(data, d)}, 1)
+    t = now()
+    block.update(recorded_at=t, repo=DV.repo_state(a.project))
+    prev = d.get("verification")
+    d["verification"] = block
+    d["updated_at"] = t
+    d["history"].append({"at": t, "actor": "claude", "event": "verification", **({"previous": prev} if prev else {})})
+    save(a.file, data)
+    r = DV.evaluate(d, data, a.project, str(pathlib.Path(a.file).resolve().parent), "plan")
+    return emit({"status": "ok", "id": a.id, "outcome": r["outcome"], "risk": r["risk"], "risk_reasons": r["risk_reasons"],
+                 "issues": r["issues"], "warnings": warns})
+
+
+def cmd_check_result(a):
+    import decision_verification as DV
+    data = load(a.file)
+    d = find(data, a.id)
+    if not d or not d.get("verification"):
+        return emit({"status": "error", "reason": f"{a.id} has no verification record"}, 1)
+    v = json.loads(json.dumps(d["verification"]))
+    c = next((x for x in v.get("checks") or [] if x.get("id") == a.check), None)
+    if not c:
+        return emit({"status": "error", "reason": f"{a.check} not in {a.id}'s checks"}, 1)
+    patch = read_json(a.json)
+    c.update({k: patch[k] for k in ("status", "evidence", "reason", "limitations", "actual") if k in patch})
+    v["_session"] = str(pathlib.Path(a.file).resolve().parent)
+    errs, warns, block = DV.prepare(v, a.project, data, d, only_check=a.check)
+    if errs:
+        return emit({"status": "invalid", "errors": errs}, 1)
+    t = now()
+    block.update(recorded_at=d["verification"].get("recorded_at"), repo=d["verification"].get("repo"))
+    d["verification"] = block
+    d["history"].append({"at": t, "actor": "claude", "event": "check-result", "check": a.check, "result": c["status"]})
+    save(a.file, data)
+    return emit({"status": "ok", "id": a.id, "check": a.check, "result": c["status"]})
+
+
+def cmd_gate(a):
+    import decision_verification as DV
+    data = load(a.file)
+    res = DV.gate(data, a.project, str(pathlib.Path(a.file).resolve().parent), a.stage,
+                  [x.strip() for x in a.ids.split(",")] if a.ids else None)
+    if a.md:
+        print(DV.gate_md(res))
+        return 0 if res["passed"] else 1
+    return emit({"status": "ok" if res["passed"] else "blocked", **res}, 0 if res["passed"] else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -961,13 +1067,18 @@ def main():
     s = p("questions"); s.add_argument("--status")
     s = p("finding"); s.add_argument("--json", required=True)
     s = p("finding-update", "id"); s.add_argument("--json", required=True)
+    s = p("verify", "id"); s.add_argument("--json", required=True)
+    s = p("check-result", "id", "check"); s.add_argument("--json", required=True)
+    s = p("gate"); s.add_argument("--stage", required=True, choices=["plan", "review"]); s.add_argument("--ids")
+    s.add_argument("--md", action="store_true")
     a = ap.parse_args()
     try:
         return {"add": cmd_add, "revise": cmd_revise, "transition": cmd_transition, "human": cmd_human,
                 "supersede": cmd_supersede, "outcome": cmd_outcome, "validate": cmd_validate, "show": cmd_show,
                 "report": cmd_report, "export": cmd_export, "ask": cmd_ask, "answer": cmd_answer, "defer": cmd_defer,
                 "reject-question": cmd_reject_question, "reopen": cmd_reopen, "questions": cmd_questions,
-                "finding": cmd_finding, "finding-update": cmd_finding_update}[a.cmd](a)
+                "finding": cmd_finding, "finding-update": cmd_finding_update, "verify": cmd_verify,
+                "check-result": cmd_check_result, "gate": cmd_gate}[a.cmd](a)
     except (ValueError, KeyError, OSError) as e:
         return emit({"status": "error", "reason": f"{type(e).__name__}: {e}"}, 2)
 

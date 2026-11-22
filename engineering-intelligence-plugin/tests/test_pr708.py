@@ -59,6 +59,26 @@ HOOK_SYMBOL = {
     "behavior_to_preserve": ["tracking shows the order's payment method name"],
 }
 
+VERIFICATION = {
+    "claims": [
+        {"text": "With no saved card, tapping Add New opens Add Card directly; the row is disabled when addCardDisabled",
+         "basis": "VERIFIED_FACT", "source": {"kind": "code", "ref": SHEET + ":16-17"}},
+        {"text": "The COD-unavailable frame shows a selectable Add New row", "basis": "VERIFIED_FACT",
+         "source": {"kind": "developer", "quote": "use the radio on Add New when COD is unavailable", "via": "ticket intake"}}],
+    "assumptions": [
+        {"text": "payment-methods returns codAvailable for the checkout's final total", "why": "the radio only appears when COD is unavailable",
+         "unknown": "whether the delivery fee is included", "impact_if_wrong": "the radio shows when COD is actually available",
+         "how_to_verify": "backend answer to Q-001 or an observed response", "classification": "UNVERIFIED", "material": True,
+         "confirm_by": "backend", "question": "Q-001",
+         "resolution": {"status": "ACCEPTED_RISK", "by": "developer", "via": "Plan Gate",
+                        "reason": "ship with Q-001 open; it is listed in the PR for the backend team"}}],
+    "conflicts": [],
+    "checks": [
+        {"what": "no new type errors from the {codAvailable, methods} result", "tool": "typescript", "expected": "PASS against the baseline"},
+        {"what": "every path to continueReviewedOrder honors mainButtonDisabled", "tool": "entry-point-analysis",
+         "expected": "no unguarded entry point"}],
+}
+
 GUARD_ENTRIES = [
     {"ref": f"{CHECKOUT}:16", "chain": "Place order CTA → handleMainCta → continueReviewedOrder", "enforced": "yes",
      "evidence": f"{CHECKOUT}:25 disabled={{mainButtonDisabled}}"},
@@ -111,6 +131,7 @@ class Base(unittest.TestCase):
 
     def plan_records(self):
         self.ok("decision_records.py", "add", self.D, "--json", "-", "--project", self.fx.repo, payload=DECISION)
+        self.ok("decision_records.py", "verify", self.D, "D-001", "--json", "-", "--project", self.fx.repo, payload=VERIFICATION)
         self.ok("impact_check.py", "symbol", self.S, "--json", "-", payload=SHEET_SYMBOL)
         self.ok("impact_check.py", "symbol", self.S, "--json", "-", payload=HOOK_SYMBOL)
         self.ok("impact_check.py", "guard", self.S, "--json", "-", payload=GUARD)
@@ -471,6 +492,10 @@ class WorkflowIntegration(Base):
                 payload={"source": "system-review", "review_ref": f"{rv['id']}/SR1", "ref": f"{SHEET}:16",
                          "title": "Wallet row behavior", "classification": "VALID", "kind": "test-gap", "disposition": "DEFERRED",
                          "reason": "regression test for Wallet follows in TK-4310", "actor": "developer"})
+        self.ok("decision_records.py", "check-result", self.D, "D-001", "V1", "--json", "-", "--project", self.fx.repo,
+                payload={"status": "PASSED", "evidence": {"baseline": "tsc"}})
+        self.ok("decision_records.py", "check-result", self.D, "D-001", "V2", "--json", "-", "--project", self.fx.repo,
+                payload={"status": "PASSED" if guard_fixed else "FAILED", "evidence": {"impact": "G-001"}})
         self.ok("final_report.py", "pr", self.S)
 
     def test_feature_end_to_end(self):

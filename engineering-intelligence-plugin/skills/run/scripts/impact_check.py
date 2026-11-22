@@ -776,6 +776,18 @@ def gate(session, stage, persist=True):
     for q in qs:
         e = DR.check_question(q)
         B += [f"{q['id']}: {m}" for m in e]
+    # 3b. decision verification — sources, freshness, assumptions, conflicts, checks (decision_verification.py)
+    import decision_verification as DV
+    dv = DV.gate(dec_data, project, session, stage)
+    S["decision_verification"] = [{"id": r["id"], "risk": r["risk"], "outcome": r["outcome"]} for r in dv["decisions"]
+                                  if r["outcome"] != "NOT_APPLICABLE"]
+    for r in dv["decisions"]:
+        msg = f"decision {r['id']} ({r['risk']} risk — {'; '.join(r['risk_reasons'])}): {r['outcome']} — " + \
+              "; ".join(i["message"] for i in r["issues"][:3])
+        if r["id"] in dv["blocking"]:
+            B.append(msg)
+        elif r["id"] in dv["open"]:
+            W.append(msg)
     # 4. conventions profile
     conv = CV.load_profile(session)
     if not conv:
@@ -884,7 +896,7 @@ def gate(session, stage, persist=True):
         if open_dec:
             W.append("decisions not approved: " + ", ".join(open_dec))
     passed = not B
-    readiness = ("NOT READY" if B else "READY WITH OPEN QUESTIONS" if open_q else "READY") if stage == "review" else \
+    readiness = ("NOT READY" if B else "READY WITH OPEN QUESTIONS" if (open_q or dv["open"]) else "READY") if stage == "review" else \
         ("CHECKPOINT PASSED" if passed else "CHECKPOINT INCOMPLETE")
     res = {"stage": stage, "passed": passed, "readiness": readiness, "blockers": B, "warnings": W, "summary": S,
            "at": now()}
