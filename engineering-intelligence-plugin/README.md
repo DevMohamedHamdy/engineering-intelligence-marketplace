@@ -67,6 +67,7 @@ skills/run/
   scripts/conventions.py              # session conventions profile from lint, docs, code, and human review history; diff check
   scripts/verify_baseline.py          # type check / lint before and after: existing · new · resolved · changed errors
   hooks/gate_guard.py                 # PreToolUse: no project edit before the plan checkpoint; PostToolUse: unrecorded modified symbols
+  scripts/excalidraw_export.py        # editable <id>.excalidraw per flowchart (same layout, arrows bound to nodes) — Mermaid stays the source
   scripts/diagram_tabs.py             # editor image tabs: compare-<name>.svg (BEFORE | AFTER side by side, diff highlighted), diagram-<id>.svg
   scripts/diagram_viewer.py           # self-contained viewer page: zoom / fit / pan / full screen / node inspection
   scripts/evidence_ledger.py          # Evidence ledger: provenance, repository state, lifecycle, integrity, query, trace

@@ -4,6 +4,7 @@
 Diagram folder (default, no Markdown): a temp folder OUTSIDE the project holding `<id>.mmd` files
 (before-<name>.mmd, after-<name>.mmd, proposed-<name>.mmd, overview.mmd, ...). Writes next to them:
   <id>.svg        standalone vector image per diagram (no scripts, no external refs)
+  <id>.excalidraw editable Excalidraw file per flowchart (same layout, arrows bound to nodes; other kinds skipped)
   diagrams.html   self-contained, read-only viewer: every diagram with title + summary, zoom / fit / pan /
                   full screen, node inspection (description, source refs, relationships), and a side-by-side
                   comparison for each before-/after- (or before-/proposed-) pair with differences highlighted
@@ -39,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the s
 import diagram_lint as L  # noqa: E402
 import diagram_viewer as V  # noqa: E402
 import diagram_tabs as T  # noqa: E402
+import excalidraw_export as X  # noqa: E402
 
 MERMAID_DEFAULT = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs"
 CANDIDATES = [
@@ -86,9 +88,53 @@ __SECTIONS__
 import mermaid from "__MERMAID__";
 const out = {};
 mermaid.initialize(__THEME__);
+const hex = c => { const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/.exec(c);
+  if (!m || (m[4] !== undefined && +m[4] === 0)) return "transparent";
+  return "#" + [1, 2, 3].map(i => (+m[i]).toString(16).padStart(2, "0")).join(""); };
+const linesOf = el => { if (!el) return []; const t = [...el.querySelectorAll("tspan")].map(x => x.textContent.trim()).filter(Boolean);
+  return t.length ? t : (el.textContent.trim() ? [el.textContent.trim()] : []); };
+function geometry(svgText) {   // flowchart layout (nodes, subgraphs, edges, labels) for the .excalidraw export
+  const host = document.createElement("div");
+  host.style.cssText = "position:absolute;left:0;top:0;visibility:hidden";
+  host.innerHTML = svgText; document.body.appendChild(host);
+  try {
+    const svg = host.querySelector("svg"); if (!svg || !svg.classList.contains("flowchart")) return null;
+    const vb = svg.viewBox.baseVal, r0 = svg.getBoundingClientRect(), k = vb.width / r0.width;
+    const box = el => { const r = el.getBoundingClientRect();
+      return { x: (r.left - r0.left) * k + vb.x, y: (r.top - r0.top) * k + vb.y, w: r.width * k, h: r.height * k }; };
+    const nodes = [], ids = new Set();
+    svg.querySelectorAll("g.node").forEach(n => {
+      const id = n.id.replace(/^flowchart-/, "").replace(/-\d+$/, ""), shape = n.querySelector("polygon, ellipse, circle, rect, path");
+      if (!shape) return;
+      const cs = getComputedStyle(shape), tag = shape.tagName.toLowerCase(), label = n.querySelector("text");
+      ids.add(id);
+      nodes.push({ id, box: box(shape), lines: linesOf(n.querySelector("g.label") || n), fill: hex(cs.fill), stroke: hex(cs.stroke),
+        color: label ? hex(getComputedStyle(label).fill) : "#0f172a", dash: !!cs.strokeDasharray && cs.strokeDasharray !== "none",
+        shape: tag === "polygon" ? "diamond" : (tag === "ellipse" || tag === "circle") ? "ellipse" : (tag === "rect" && +shape.getAttribute("rx") > 0) ? "round" : "rect" });
+    });
+    const clusters = [];
+    svg.querySelectorAll("g.cluster").forEach(c => { const r = c.querySelector("rect"); if (!r) return;
+      const cs = getComputedStyle(r), lab = c.querySelector(".cluster-label");
+      clusters.push({ id: c.id, box: box(r), fill: hex(cs.fill), stroke: hex(cs.stroke), lines: linesOf(lab), label_box: lab ? box(lab) : null }); });
+    const edges = [], labels = [];
+    svg.querySelectorAll("path.flowchart-link").forEach(p => {
+      const m = /^L_(.+)_(\d+)$/.exec(p.id); let from = null, to = null;
+      if (m) for (let i = 1; i < m[1].length; i++) if (m[1][i] === "_" && ids.has(m[1].slice(0, i)) && ids.has(m[1].slice(i + 1))) { from = m[1].slice(0, i); to = m[1].slice(i + 1); break; }
+      const len = p.getTotalLength(), n = Math.max(2, Math.min(12, Math.ceil(len / 50) + 1)), points = [];
+      for (let i = 0; i < n; i++) { const q = p.getPointAtLength(len * i / (n - 1)); points.push([q.x, q.y]); }
+      const cl = p.getAttribute("class") || "";
+      edges.push({ id: p.id, from, to, points, thick: /thick/.test(cl), arrow: !!p.getAttribute("marker-end"),
+        dash: /dotted/.test(cl) ? "dotted" : /dashed/.test(cl) ? "dashed" : "solid" });
+    });
+    svg.querySelectorAll("g.edgeLabel").forEach(g => { const t = g.querySelector("text"), l = linesOf(t); if (!t || !l.length) return;
+      const d = g.querySelector("[data-id]"); labels.push({ edge: d ? d.getAttribute("data-id") : null, lines: l, box: box(t) }); });
+    return { width: vb.width, height: vb.height, nodes, clusters, edges, labels };
+  } finally { host.remove(); }
+}
 for (const el of document.querySelectorAll("textarea[data-id]")) {
   const id = el.dataset.id;
-  try { const { svg } = await mermaid.render("svg_" + id.replace(/[^A-Za-z0-9_]/g, "_"), el.value); out[id] = { svg }; }
+  try { const { svg } = await mermaid.render("svg_" + id.replace(/[^A-Za-z0-9_]/g, "_"), el.value); out[id] = { svg };
+        try { out[id].geom = geometry(svg); } catch (g) { out[id].geom = null; } }
   catch (e) { out[id] = { error: String(e && e.message || e) }; }
   document.querySelectorAll("[id^=dsvg_]").forEach(n => n.remove());
 }
@@ -377,13 +423,13 @@ def main():
                 errors[did] = f'{diagrams[did]["page"]}: render failed — {r["error"][:300]}'
                 diagrams[did].update(svg=None, error="Mermaid could not render it: " + r["error"][:300])
             else:
-                diagrams[did]["svg"] = standalone_svg(r["svg"])
+                diagrams[did]["svg"] = standalone_svg(r["svg"]); diagrams[did]["geom"] = r.get("geom")
         if retry:
             out2 = render_batch(browser, base, tmp, ws.name + "-retry", {k: v[0] for k, v in retry.items()}, a.mermaid_js, a.timeout) or {}
             for did, (src, fixes, first_err) in retry.items():
                 r = out2.get(did, {"error": "no result"})
                 if "svg" in r:
-                    diagrams[did]["svg"] = standalone_svg(r["svg"])
+                    diagrams[did]["svg"] = standalone_svg(r["svg"]); diagrams[did]["geom"] = r.get("geom")
                     diagrams[did]["lint"]["fixes"] += fixes + [f"recovered from render error: {first_err[:120]}"]
                 else:
                     errors[did] = f'{diagrams[did]["page"]}: render failed after correction — {r["error"][:300]}'
@@ -391,14 +437,23 @@ def main():
 
         out_dir = ws if folder_mode else ws / "diagrams"
         out_dir.mkdir(exist_ok=True)
+        excal, excal_skipped = [], {}
         for did, d in diagrams.items():
             path = out_dir / f"{did}.svg"
+            xpath = out_dir / f"{did}.excalidraw"
             if d.get("svg"):
                 path.write_text(d["svg"], encoding="utf-8"); written.append(str(path.relative_to(ws)))
-            elif path.exists():
-                path.unlink()  # never leave a stale image for a diagram that failed now
+                why = X.unsupported_reason(d["kind"]) or (None if d.get("geom") else "layout could not be read from the render")
+                if why:
+                    excal_skipped[did] = why
+                    xpath.unlink(missing_ok=True)
+                else:
+                    xpath.write_text(X.dumps(X.build(did, d["geom"])), encoding="utf-8"); excal.append(str(xpath.relative_to(ws)))
+            else:
+                path.unlink(missing_ok=True)  # never leave a stale image for a diagram that failed now
+                xpath.unlink(missing_ok=True)
         if folder_mode:  # a diagram whose .mmd is gone (e.g. live-* after `live_diagram.py finish`) keeps no image
-            for stale in out_dir.glob("*.svg"):
+            for stale in [*out_dir.glob("*.svg"), *out_dir.glob("*.excalidraw")]:
                 if re.match(r"(before|proposed|live|after|current)-", stale.stem) and stale.stem not in diagrams:
                     stale.unlink()
         viewer_pairs = {}
@@ -414,7 +469,7 @@ def main():
         page.write_text(V.build_html(diagrams, viewer_pairs, a.title or f"Engineering diagrams — {ws.name}",
                                      stamp, str(project) if project else None),
                         encoding="utf-8")
-        res.update(html=str(page), images=written, render_errors=errors,
+        res.update(html=str(page), images=written, excalidraw=excal, excalidraw_skipped=excal_skipped, render_errors=errors,
                    corrected={did: d["lint"]["fixes"] for did, d in diagrams.items() if d["lint"]["fixes"]})
         shot = tmp / f"{ws.name}-viewer-check.png"
         shot.unlink(missing_ok=True)

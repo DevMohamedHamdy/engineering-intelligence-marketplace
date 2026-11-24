@@ -68,6 +68,18 @@ class RenderFixturesTest(unittest.TestCase):
             self.assertNotIn("<foreignObject", svg, "labels must be real SVG text")
         self.assertFalse(list(self.folder.glob("*.png")), "PNG is no longer produced")
 
+    def test_excalidraw_export_for_flowcharts_only(self):
+        kinds = {f.stem: RW.L.diagram_kind(f.read_text())[0] for f in FIX.glob("*.mmd")}
+        for did, kind in kinds.items():
+            path = self.folder / f"{did}.excalidraw"
+            if kind == "flowchart":
+                doc = json.loads(path.read_text())
+                self.assertEqual(doc["type"], "excalidraw", did)
+                self.assertTrue(any(e["type"] == "arrow" and e["startBinding"] for e in doc["elements"]), did)
+            else:
+                self.assertFalse(path.exists(), did)
+                self.assertIn(did, self.res["excalidraw_skipped"])
+
     def test_entities_rendered_once(self):
         svg = (self.folder / "business-flow.svg").read_text() + (self.folder / "special-labels.svg").read_text()
         self.assertNotIn("&amp;amp;", svg)
