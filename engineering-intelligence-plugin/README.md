@@ -14,6 +14,10 @@ One skill, `/ei:run`, orchestrating five tasks:
 
 Every task starts with automatic project discovery (stack, resolved versions, architecture, conventions, entry points) and separates Discovery, Impact, Implementation, and Verification scopes. Business logic is traced across files and layers; BEFORE/AFTER architecture and business-flow Mermaid diagrams are source-linked; behavior is compared as `PRESERVED` / `CHANGED` / `MISSING` / `ADDED` / `UNKNOWN`. Every finding is tagged `VERIFIED` / `PARTIAL` / `INFERRED` / `UNKNOWN`.
 
+## Performance engineering — `/ei:performance` (Phase A)
+
+A second skill, independent of `/ei:run`: detect a project's settings and the machine's profiling tools, record baseline and candidate runs, compare them with noise-aware verdicts, and write a Markdown report. iOS-first (xctrace: Time Profiler, Allocations, Animation Hitches), plus Android (Perfetto, PSS, frame metrics, heapprofd). Reports only measured numbers; runs are stored outside the project (`~/.ei-performance/`). Phase A does not build, install, or parse iOS traces — see `skills/performance/SKILL.md`.
+
 ## Local review loop (Claude implements, CodeRabbit reviews)
 
 Claude is the implementation owner; CodeRabbit is the primary independent reviewer of **local** changes (uncommitted, staged, unstaged, unpushed commits) — before any push or PR.
@@ -54,6 +58,7 @@ Details: `skills/run/references/architecture-strategy.md`. Used for large refact
 
 ```text
 .claude-plugin/plugin.json
+skills/performance/     # /ei:performance — SKILL.md, references/, scripts/ (discover_*, perf_*, ios/, android/), templates/
 skills/run/
   SKILL.md              # orchestration: tasks, scopes, gates, review loop
   references/           # specialized methods + shared evidence model + coderabbit-review.md

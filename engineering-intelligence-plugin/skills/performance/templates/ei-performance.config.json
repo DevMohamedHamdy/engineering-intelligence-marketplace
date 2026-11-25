@@ -1,0 +1,11 @@
+{
+  "schema": "ei.perf.config/1",
+  "project": "<filled by discover_project.py --write-config>",
+  "thresholds": { "noise_pct": 5.0, "min_iterations": 3 },
+  "defaults": { "iterations": 5, "warmup_iterations": 1, "duration_s": 30 },
+  "android": { "device": null, "app_id": null, "build_type": null },
+  "ios": { "device": null, "bundle_id": null, "scheme": null, "configuration": null },
+  "scenarios": [
+    { "name": "<scenario-name>", "description": "<the user flow, written by the developer>", "platforms": ["ios", "android"], "metrics": [] }
+  ]
+}
